@@ -1,119 +1,94 @@
-const readline = require('readline');
-const fs = require('fs');
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('keyboard_stats.db');
+const { ipcRenderer } = require('electron');
 
-// 初始化统计对象
-const stats = {
-  keyPresses: {},
-  combinationPresses: {},  // 新增：组合键统计
-  totalPresses: 0,
-  startTime: new Date(),
-  lastPressTime: null,     // 新增：记录上次按键时间
-  pressIntervals: [],      // 新增：记录按键间隔
-};
+// 创建表格
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT,
+    count INTEGER,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+});
 
-// 设置 readline
-readline.emitKeypressEvents(process.stdin);
-process.stdin.setRawMode(true);
+// 用于存储每 30 秒的数据
+let dataMap = new Map();
+let frequencyData = []; // 用于存储频率数据
+
+// 每 30 秒更新数据
+setInterval(() => {
+  // 处理数据分析
+  analyzeData();
+  // 清空 Map
+  dataMap.clear();
+}, 30000);
+
+// 数据分析函数
+function analyzeData() {
+  // 在这里进行数据分析
+  dataMap.forEach((count, key) => {
+    // 将数据存储到 SQLite 数据库
+    db.run(`INSERT INTO stats (key, count) VALUES (?, ?)`, [key, count], function(err) {
+      if (err) {
+        return console.error(err.message);
+      }
+      console.log(`已插入数据: ${key} - ${count}`);
+    });
+
+    // 更新频率数据
+    frequencyData.push({ key, count });
+  });
+
+  // 发送频率数据到前端
+  if (frequencyData.length > 0) {
+    // 使用 IPC 发送数据到前端
+    ipcRenderer.send('updateFrequencyData', frequencyData);
+  }
+}
 
 // 监听键盘事件
 process.stdin.on('keypress', (str, key) => {
-  // 如果按下 Ctrl+C，保存并退出
-  if (key.ctrl && key.name === 'c') {
-    saveStats();
-    console.log('\n数据已保存，程序退出');
-    process.exit();
-  }
+  // 处理按键逻辑
+  let keyName = key.name || str.toUpperCase();
+  
+  // 更新 Map
+  dataMap.set(keyName, (dataMap.get(keyName) || 0) + 1);
 
-  const now = new Date();
-  
-  // 记录按键间隔
-  if (stats.lastPressTime) {
-    const interval = now - stats.lastPressTime;
-    stats.pressIntervals.push(interval);
-  }
-  stats.lastPressTime = now;
+  // 更新统计数据
+  this.stats.keyboard.keyPresses[keyName] = (this.stats.keyboard.keyPresses[keyName] || 0) + 1;
+  this.stats.keyboard.totalPresses++;
 
-  // 构建按键名称
-  let keyName = '';
-  if (key.ctrl) keyName += 'Ctrl+';
-  if (key.alt) keyName += 'Alt+';
-  if (key.shift) keyName += 'Shift+';
-  if (key.meta) keyName += 'Meta+';
-  
-  // 处理特殊键
-  if (key.name) {
-    keyName += key.name.toUpperCase();
-  } else if (str) {
-    keyName += str.toUpperCase();
+  const now = Date.now();
+  if (this.stats.keyboard.lastPressTime) {
+    const interval = now - this.stats.keyboard.lastPressTime;
+    this.stats.keyboard.pressIntervals.push(interval);
   }
+  this.stats.keyboard.lastPressTime = now;
 
-  // 更新按键统计
-  if (keyName.includes('+')) {
-    // 组合键统计
-    stats.combinationPresses[keyName] = (stats.combinationPresses[keyName] || 0) + 1;
-  } else {
-    // 单键统计
-    stats.keyPresses[keyName] = (stats.keyPresses[keyName] || 0) + 1;
-  }
-  
-  stats.totalPresses++;
-  
-  // 显示按下的键
-  console.log(`按下键: ${keyName}`);
-  
-  // 每10次按键保存一次数据并显示简要统计
-  if (stats.totalPresses % 10 === 0) {
-    saveStats();
-    showStats();
-  }
+  // 更新平均速度和间隔
+  updateSummary();
 });
 
-// 显示统计信息
-function showStats() {
-  console.log('\n--- 按键统计摘要 ---');
-  console.log(`总按键次数: ${stats.totalPresses}`);
-  
-  // 计算平均按键间隔
-  if (stats.pressIntervals.length > 0) {
-    const avgInterval = stats.pressIntervals.reduce((a, b) => a + b, 0) / stats.pressIntervals.length;
-    console.log(`平均按键间隔: ${Math.round(avgInterval)}ms`);
-  }
-  
-  // 显示最常用的5个键
-  const sortedKeys = Object.entries(stats.keyPresses)
-    .sort(([,a], [,b]) => b - a)
-    .slice(0, 5);
-  
-  console.log('\n最常用的键:');
-  sortedKeys.forEach(([key, count]) => {
-    console.log(`${key}: ${count}次`);
-  });
-  console.log('-------------------\n');
+// 更新统计摘要
+function updateSummary() {
+  const now = Date.now();
+  const timeDiff = now - this.stats.summary.startTime;
+
+  this.stats.keyboard.averageSpeed = 
+    (this.stats.keyboard.totalPresses / timeDiff) * 60000; // 每分钟按键数
+
+  this.stats.keyboard.averageInterval = 
+    this.stats.keyboard.pressIntervals.length > 0
+      ? this.stats.keyboard.pressIntervals.reduce((a, b) => a + b, 0) / 
+        this.stats.keyboard.pressIntervals.length
+      : 0;
+
+  this.stats.summary.totalTime = timeDiff;
 }
 
-// 保存统计数据
-function saveStats() {
-  const data = {
-    ...stats,
-    endTime: new Date(),
-    summary: {
-      totalTime: new Date() - stats.startTime,
-      averageSpeed: stats.totalPresses / ((new Date() - stats.startTime) / 1000 / 60), // 每分钟按键数
-      averageInterval: stats.pressIntervals.length > 0 
-        ? stats.pressIntervals.reduce((a, b) => a + b, 0) / stats.pressIntervals.length 
-        : 0
-    }
-  };
-  
-  // 删除不需要保存的临时数据
-  delete data.lastPressTime;
-  
-  fs.writeFileSync(
-    'keyboard-stats.json',
-    JSON.stringify(data, null, 2),
-    'utf8'
-  );
-}
-
-console.log('键盘统计程序已启动...');
-console.log('按 Ctrl+C 退出程序'); 
+// 每小时将数据存储到 SQLite 数据库
+setInterval(() => {
+  // 这里可以添加每小时的逻辑
+  console.log('每小时存储数据到数据库');
+}, 3600000);

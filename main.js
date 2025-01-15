@@ -32,30 +32,29 @@ function createWindow() {
     // 键盘事件监听
     keyboard.addListener(function(e, down) {
       // 过滤掉鼠标事件
-      if (e.name.toLowerCase().includes('mouse')) {
+      if (e.name && e.name.toLowerCase().includes('mouse')) {
         return;
       }
       // 过滤掉松开事件
-      if(e.state === 'DOWN'){
+      if (e.state === 'DOWN') {
         return;
       }
       if (down) {  // 确保只处理按下事件
         let keyName = e.name;
-        if (e.state.ctrl) keyName = 'Ctrl+' + keyName;
-        if (e.state.alt) keyName = 'Alt+' + keyName;
-        if (e.state.shift) keyName = 'Shift+' + keyName;
-        if (e.state.meta) keyName = 'Meta+' + keyName;
+        if (keyName) { // 确保 keyName 已定义
+          if (e.state.ctrl) keyName = 'Ctrl+' + keyName;
+          if (e.state.alt) keyName = 'Alt+' + keyName;
+          if (e.state.shift) keyName = 'Shift+' + keyName;
+          if (e.state.meta) keyName = 'Meta+' + keyName;
 
-        console.log("keyEvent============",keyName);
-        console.log("keyEvent:down ============",down);
-        console.log("keyEvent:e ============",e);
-        mainWindow.webContents.send('keyEvent', {
-          type: 'keyboard',
-          key: keyName,
-           // 移除 isDown 参数，因为我们只发送按下事件
-          // isDown: down,
-          timestamp: Date.now()
-        });
+          mainWindow.webContents.send('keyEvent', {
+            type: 'keyboard',
+            key: keyName,
+            timestamp: Date.now()
+          });
+        } else {
+          console.warn('未定义的键名:', e);
+        }
       }
     });
 
