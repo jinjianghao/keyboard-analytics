@@ -2,6 +2,130 @@ const { app, BrowserWindow } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
 
+const keyCodeToStringNormal = {
+  29: "0",
+  18: "1",
+  19: "2",
+  20: "3",
+  21: "4",
+  23: "5",
+  22: "6",
+  26: "7",
+  28: "8",
+  25: "9",
+  0: "A",
+  11: "B",
+  8: "C",
+  2: "D",
+  14: "E",
+  3: "F",
+  5: "G",
+  4: "H",
+  34: "I",
+  38: "J",
+  40: "K",
+  37: "L",
+  46: "M",
+  45: "N",
+  31: "O",
+  35: "P",
+  12: "Q",
+  15: "R",
+  1: "S",
+  17: "T",
+  32: "U",
+  9: "V",
+  13: "W",
+  7: "X",
+  16: "Y",
+  6: "Z",
+  10: "SectionSign",
+  50: "Grave",
+  27: "Minus",
+  24: "Equal",
+  33: "LeftBracket",
+  30: "RightBracket",
+  41: "Semicolon",
+  39: "Quote",
+  43: "Comma",
+  47: "Period",
+  44: "Slash",
+  42: "Backslash",
+  82: "Keypad0",
+  83: "Keypad1",
+  84: "Keypad2",
+  85: "Keypad3",
+  86: "Keypad4",
+  87: "Keypad5",
+  88: "Keypad6",
+  89: "Keypad7",
+  91: "Keypad8",
+  92: "Keypad9",
+  65: "KeypadDecimal",
+  67: "KeypadMultiply",
+  69: "KeypadPlus",
+  75: "KeypadDivide",
+  78: "KeypadMinus",
+  81: "KeypadEquals",
+  71: "KeypadClear",
+  76: "KeypadEnter",
+  49: "Space",
+  36: "Return",
+  48: "Tab",
+  51: "Delete",
+  117: "ForwardDelete",
+  52: "Linefeed",
+  53: "Escape",
+  122: "F1",
+  120: "F2",
+  99: "F3",
+  118: "F4",
+  96: "F5",
+  97: "F6",
+  98: "F7",
+  100: "F8",
+  101: "F9",
+  109: "F10",
+  103: "F11",
+  111: "F12",
+  105: "F13",
+  107: "F14",
+  113: "F15",
+  106: "F16",
+  64: "F17",
+  79: "F18",
+  80: "F19",
+  90: "F20",
+  72: "VolumeUp",
+  73: "VolumeDown",
+  74: "Mute",
+  114: "Help/Insert",
+  115: "Home",
+  119: "End",
+  116: "PageUp",
+  121: "PageDown",
+  123: "Arrow Left",
+  124: "Arrow Right",
+  125: "Arrow Down",
+  126: "Arrow Up",
+  145: "Brightness Down",
+  144: "Brightness Up",
+  130: "Dashboard",
+  131: "LaunchPad"
+};
+
+const keyCodeToStringModifier = {
+  54: "RightCommand",
+  55: "Command",
+  56: "Shift",
+  57: "CapsLock",
+  58: "Option",
+  59: "Control",
+  60: "RightShift",
+  61: "RightOption",
+  62: "RightControl",
+  63: "Function"
+};
 // 添加对 NSApplicationDelegate 的支持
 app.applicationSupportsSecureRestorableState = true;
 
@@ -10,9 +134,9 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'IMEBasedTextInput');
 }
 
-class KeyStatsCollector {
-  // ... 保持原有代码不变 ...
-}
+// class KeyStatsCollector {
+//   // ... 保持原有代码不变 ...
+// }
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -29,31 +153,20 @@ function createWindow() {
     // 初始化键盘监听
     const keyboard = new GlobalKeyboardListener();
     
-    // 键盘事件监听
     keyboard.addListener(function(e, down) {
-      // 过滤掉鼠标事件
-      if (e.name && e.name.toLowerCase().includes('mouse')) {
-        return;
-      }
-      // 过滤掉松开事件
-      if (e.state === 'DOWN') {
-        return;
-      }
-      if (down) {  // 确保只处理按下事件
-        let keyName = e.name;
-        if (keyName) { // 确保 keyName 已定义
-          if (e.state.ctrl) keyName = 'Ctrl+' + keyName;
-          if (e.state.alt) keyName = 'Alt+' + keyName;
-          if (e.state.shift) keyName = 'Shift+' + keyName;
-          if (e.state.meta) keyName = 'Meta+' + keyName;
-
+      if (e.name && e.name.toLowerCase().includes('mouse')) return;
+      if (e.state === 'DOWN') return;
+      if (down) {
+        let keyName = keyCodeToStringNormal[e.keyCode] || keyCodeToStringModifier[e.keyCode] || e.name;
+        console.log(keyName);
+        
+        if (keyName) {
           mainWindow.webContents.send('keyEvent', {
             type: 'keyboard',
-            key: keyName,
-            timestamp: Date.now()
+            key: keyName
           });
         } else {
-          console.warn('未定义的键名:', e);
+          console.warn(`未定义的按键: ${e.keyCode}`);
         }
       }
     });
@@ -80,11 +193,6 @@ function createWindow() {
         name: buttonName,
         timestamp: Date.now()
       });
-    });
-
-    // 确保只在鼠标按下时发送事件
-    uIOhook.on('mouseup', () => {
-      // 不处理鼠标抬起事件
     });
 
     // 启动 uIOhook
