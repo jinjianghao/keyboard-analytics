@@ -24,26 +24,75 @@ setInterval(() => {
   dataMap.clear();
 }, 30000);
 
+let nonComboKeyCache = new Map();
+const CACHE_THRESHOLD = 50; // 设置缓存阈值
+
 // 数据分析函数
 function analyzeData() {
-  // 在这里进行数据分析
-  dataMap.forEach((count, key) => {
-    // 将数据存储到 SQLite 数据库
-    db.run(`INSERT INTO stats (key, count) VALUES (?, ?)`, [key, count], function(err) {
-      if (err) {
-        return console.error(err.message);
-      }
-      console.log(`已插入数据: ${key} - ${count}`);
-    });
+  console.log('分析数据...'); // 确认函数被调用
+  console.log('当前数据:', Array.from(dataMap)); // 查看 dataMap 的内容
 
-    // 更新频率数据
-    frequencyData.push({ key, count });
+  dataMap.forEach((count, key) => {
+    // 检测快捷键组合
+    let shortcutKey = '';
+    if (key.includes('+')) {
+      shortcutKey = key; // 如果已经是组合键
+    } else {
+      // 检测是否有特殊键
+      if (key.includes('Ctrl')) {
+        shortcutKey = 'Ctrl+' + key.replace('Ctrl+', '');
+      } else if (key.includes('Shift')) {
+        shortcutKey = 'Shift+' + key.replace('Shift+', '');
+      } else if (key.includes('Alt')) {
+        shortcutKey = 'Alt+' + key.replace('Alt+', '');
+      }
+    }
+
+    // 如果是组合快捷键，直接插入数据库
+    if (shortcutKey) {
+      db.run(`INSERT INTO stats (key, count) VALUES (?, ?)`, [shortcutKey, count], function(err) {
+        if (err) {
+          return console.error('插入错误:', err.message);
+        }
+        console.log(`已插入数据: ${shortcutKey} - ${count}`);
+      });
+    } else {
+      // 如果是非组合快捷键，缓存到 Map
+      nonComboKeyCache.set(key, (nonComboKeyCache.get(key) || 0) + count);
+
+      // 检查缓存长度是否达到阈值
+      if (nonComboKeyCache.size >= CACHE_THRESHOLD) {
+        // 批量插入缓存数据
+        const insertPromises = [];
+        nonComboKeyCache.forEach((cachedCount, cachedKey) => {
+          insertPromises.push(new Promise((resolve, reject) => {
+            db.run(`INSERT INTO stats (key, count) VALUES (?, ?)`, [cachedKey, cachedCount], function(err) {
+              if (err) {
+                reject(err);
+              } else {
+                resolve();
+              }
+            });
+          }));
+        });
+
+        // 等待所有插入完成后清空缓存
+        Promise.all(insertPromises)
+          .then(() => {
+            console.log('批量插入非组合快捷键数据完成');
+            nonComboKeyCache.clear(); // 清空缓存
+          })
+          .catch(err => {
+            console.error('批量插入错误:', err.message);
+          });
+      }
+    }
   });
 
   // 发送频率数据到前端
   if (frequencyData.length > 0) {
-    // 使用 IPC 发送数据到前端
     ipcRenderer.send('updateFrequencyData', frequencyData);
+    frequencyData = [];
   }
 }
 
@@ -54,6 +103,22 @@ process.stdin.on('keypress', (str, key) => {
   
   // 更新 Map
   dataMap.set(keyName, (dataMap.get(keyName) || 0) + 1);
+
+  // 确保 this.stats 被正确初始化
+  if (!this.stats) {
+    this.stats = {
+      keyboard: {
+        keyPresses: {},
+        totalPresses: 0,
+        pressIntervals: [],
+        lastPressTime: null,
+      },
+      summary: {
+        startTime: Date.now(),
+        totalTime: 0,
+      },
+    };
+  }
 
   // 更新统计数据
   this.stats.keyboard.keyPresses[keyName] = (this.stats.keyboard.keyPresses[keyName] || 0) + 1;
