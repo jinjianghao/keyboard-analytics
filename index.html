@@ -110,13 +110,13 @@
         return {
           stats: {
             keyboard: {
+              totalPresses: 0,
+              averageSpeed: 0,
+              averageInterval: 0,
               keyPresses: {},
               combinationPresses: {},
-              totalPresses: 0,
               lastPressTime: null,
-              pressIntervals: [],
-              averageSpeed: 0,
-              averageInterval: 0
+              pressIntervals: []
             },
             mouse: {
               left: 0,
@@ -127,17 +127,24 @@
               clickIntervals: []
             },
             timeFrames: {
-              last30sec: { keyboard: {}, mouse: {} },
-              last5min: { keyboard: {}, mouse: {} },
-              last30min: { keyboard: {}, mouse: {} }
+              last30sec: {
+                keyboard: {},
+                mouse: {}
+              },
+              last5min: {
+                keyboard: {},
+                mouse: {}
+              },
+              last30min: {
+                keyboard: {},
+                mouse: {}
+              }
             },
             summary: {
               totalTime: 0,
               startTime: Date.now()
             }
-          },
-          charts: {},
-          lastChartUpdate: Date.now()
+          }
         }
       },
       methods: {
@@ -147,24 +154,97 @@
           const hours = Math.floor(minutes / 60);
           return `${hours}小时 ${minutes % 60}分钟 ${seconds % 60}秒`;
         },
+        initCharts() {
+          // 使用 window 对象存储图表实例，避免 Vue 的响应式系统
+          window._keyboardCharts = window._keyboardCharts || {};
+          
+          const keyPressCtx = document.getElementById('keyPressChart');
+          if (keyPressCtx) {
+            window._keyboardCharts.keyPress = new Chart(keyPressCtx, {
+              type: 'bar',
+              data: {
+                labels: [],
+                datasets: [{
+                  label: '按键次数',
+                  data: [],
+                  backgroundColor: 'rgba(54, 162, 235, 0.5)'
+                }]
+              },
+              options: {
+                responsive: true,
+                animation: false,
+                scales: { y: { beginAtZero: true } }
+              }
+            });
+          }
+        },
+        updateKeyPressChart() {
+          const chart = window._keyboardCharts?.keyPress;
+          if (!chart) return;
+          
+          try {
+            // 创建新的数据对象
+            const sortedKeys = Object.entries(this.stats.keyboard.keyPresses)
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 10);
+
+            const labels = sortedKeys.map(([key]) => key);
+            const data = sortedKeys.map(([,count]) => count);
+
+            // 直接更新数据
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = data;
+            
+            // 使用 RAF 更新图表
+            window._chartRAF = window._chartRAF || requestAnimationFrame(() => {
+              chart.update('none');
+              window._chartRAF = null;
+            });
+          } catch (error) {
+            console.error('更新图表时出错:', error);
+          }
+        },
+        updateCharts() {
+          if (window._keyboardCharts?.keyPress) {
+            this.updateKeyPressChart();
+          }
+        },
+        cleanTimeFrameData(frame, duration) {
+          const now = Date.now();
+          const cutoff = now - duration;
+
+          Object.entries(this.stats.timeFrames[frame]).forEach(([type, data]) => {
+            Object.entries(data).forEach(([key, value]) => {
+              if (Array.isArray(value.timestamps)) {
+                value.timestamps = value.timestamps.filter(t => t > cutoff);
+                value.count = value.timestamps.length;
+                if (value.count === 0) {
+                  delete data[key];
+                }
+              }
+            });
+          });
+        },
         handleKeyboardEvent(data) {
           const { key, timestamp } = data;
           
-          this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
+          // 更新基本统计
           this.stats.keyboard.totalPresses++;
+          this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
           
-          if (key.includes('+')) {
-            this.stats.keyboard.combinationPresses[key] = 
-              (this.stats.keyboard.combinationPresses[key] || 0) + 1;
-          }
-          
-          if (this.stats.keyboard.lastPressTime) {
-            const interval = timestamp - this.stats.keyboard.lastPressTime;
-            this.stats.keyboard.pressIntervals.push(interval);
-          }
-          this.stats.keyboard.lastPressTime = timestamp;
-          
+          // 更新时间帧数据
           this.updateTimeFrames('keyboard', key, timestamp);
+          
+          // 更新图表
+          this.debounceChartUpdate();
+        },
+        debounceChartUpdate() {
+          if (window._chartUpdateTimeout) {
+            clearTimeout(window._chartUpdateTimeout);
+          }
+          window._chartUpdateTimeout = setTimeout(() => {
+            this.updateCharts();
+          }, 100);
         },
         handleMouseEvent(data) {
           const { name, timestamp } = data;
@@ -210,172 +290,105 @@
             }
           });
         },
-        cleanTimeFrameData(frame, duration) {
-          const now = Date.now();
-          const cutoff = now - duration;
-
-          ['keyboard', 'mouse'].forEach(type => {
-            Object.entries(this.stats.timeFrames[frame][type]).forEach(([key, data]) => {
-              data.timestamps = data.timestamps.filter(t => t > cutoff);
-              data.count = data.timestamps.length;
-              if (data.count === 0) {
-                delete this.stats.timeFrames[frame][type][key];
-              }
-            });
-          });
-        },
-        updateSummary() {
-          const now = Date.now();
-          const timeDiff = now - this.stats.summary.startTime;
-          
-          this.stats.keyboard.averageSpeed = 
-            (this.stats.keyboard.totalPresses / timeDiff) * 60000;
-          
-          this.stats.keyboard.averageInterval = 
-            this.stats.keyboard.pressIntervals.length > 0
-              ? this.stats.keyboard.pressIntervals.reduce((a, b) => a + b, 0) / 
-                this.stats.keyboard.pressIntervals.length
-              : 0;
-          
-          this.stats.summary.totalTime = timeDiff;
-        },
-        updateCharts() {
-          this.updateKeyPressChart();
-          this.updateDistributionChart();
-          this.updateCombinationChart();
-        },
-        initCharts() {
-          this.charts.keyPress = new Chart(
-            document.getElementById('keyPressChart'),
-            {
-              type: 'bar',
-              data: {
-                labels: [],
-                datasets: [{
-                  label: '按键次数',
-                  data: [],
-                  backgroundColor: 'rgba(54, 162, 235, 0.5)'
-                }]
-              },
-              options: {
-                responsive: true,
-                animation: { duration: 200 },
-                scales: { y: { beginAtZero: true } }
-              }
-            }
-          );
-
-          this.charts.distribution = new Chart(
-            document.getElementById('keyDistributionChart'),
-            {
-              type: 'line',
-              data: {
-                labels: [],
-                datasets: [{
-                  label: '每秒按键次数',
-                  data: [],
-                  borderColor: 'rgba(75, 192, 192, 1)',
-                  tension: 0.1,
-                  fill: true,
-                  backgroundColor: 'rgba(75, 192, 192, 0.2)'
-                }]
-              },
-              options: {
-                responsive: true,
-                scales: { y: { beginAtZero: true } }
-              }
-            }
-          );
-
-          this.charts.combination = new Chart(
-            document.getElementById('combinationChart'),
-            {
-              type: 'doughnut',
-              data: {
-                labels: [],
-                datasets: [{
-                  data: [],
-                  backgroundColor: [
-                    'rgba(255, 99, 132, 0.5)',
-                    'rgba(54, 162, 235, 0.5)',
-                    'rgba(255, 206, 86, 0.5)',
-                    'rgba(75, 192, 192, 0.5)',
-                    'rgba(153, 102, 255, 0.5)'
-                  ]
-                }]
-              },
-              options: {
-                responsive: true,
-                plugins: {
-                  legend: {
-                    position: 'right'
-                  }
-                }
-              }
-            }
-          );
-        },
-        updateKeyPressChart() {
-          if (!this.charts.keyPress) return;
-          
-          const sortedKeys = Object.entries(this.stats.keyboard.keyPresses)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 10);
-          
-          this.charts.keyPress.data.labels = sortedKeys.map(([key]) => key);
-          this.charts.keyPress.data.datasets[0].data = sortedKeys.map(([,count]) => count);
-          this.charts.keyPress.update();
-        },
         updateDistributionChart() {
-          if (!this.charts.distribution) return;
+          if (!this._charts?.distribution) return;
           
-          const now = Date.now();
-          const timePoints = Array.from({length: 30}, (_, i) => now - (i * 1000));
-          const distribution = timePoints.map(time => {
-            return Object.values(this.stats.timeFrames.last30sec.keyboard)
-              .reduce((sum, data) => {
-                return sum + data.timestamps.filter(t => t > time - 1000 && t <= time).length;
-              }, 0);
-          });
+          try {
+            const now = Date.now();
+            const timePoints = Array.from({length: 30}, (_, i) => now - (i * 1000));
+            const distribution = timePoints.map(time => {
+              return Object.values(this.stats.timeFrames.last30sec.keyboard)
+                .reduce((sum, data) => {
+                  return sum + (data.timestamps || [])
+                    .filter(t => t > time - 1000 && t <= time).length;
+                }, 0);
+            });
 
-          this.charts.distribution.data.labels = Array.from({length: 30}, (_, i) => `${i}秒前`);
-          this.charts.distribution.data.datasets[0].data = distribution.reverse();
-          this.charts.distribution.update();
+            const newData = {
+              labels: Array.from({length: 30}, (_, i) => `${i}秒前`),
+              datasets: [{
+                label: '每秒按键次数',
+                data: distribution.reverse(),
+                borderColor: 'rgba(75, 192, 192, 1)',
+                tension: 0.1,
+                fill: true,
+                backgroundColor: 'rgba(75, 192, 192, 0.2)'
+              }]
+            };
+
+            // 使用深拷贝更新数据
+            this._charts.distribution.data.labels = [...newData.labels];
+            this._charts.distribution.data.datasets = newData.datasets.map(dataset => ({...dataset}));
+            
+            requestAnimationFrame(() => {
+              this._charts.distribution.update('none');
+            });
+          } catch (error) {
+            console.error('更新分布图表时出错:', error);
+          }
         },
         updateCombinationChart() {
-          if (!this.charts.combination) return;
+          if (!this._charts?.combination) return;
           
-          const combos = Object.entries(this.stats.keyboard.combinationPresses)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 5);
-          
-          this.charts.combination.data.labels = combos.map(([combo]) => combo);
-          this.charts.combination.data.datasets[0].data = combos.map(([,count]) => count);
-          this.charts.combination.update();
+          try {
+            const combos = Object.entries(this.stats.keyboard.combinationPresses || {})
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 5);
+            
+            const newData = {
+              labels: combos.map(([combo]) => combo),
+              datasets: [{
+                data: combos.map(([,count]) => count),
+                backgroundColor: [
+                  'rgba(255, 99, 132, 0.5)',
+                  'rgba(54, 162, 235, 0.5)',
+                  'rgba(255, 206, 86, 0.5)',
+                  'rgba(75, 192, 192, 0.5)',
+                  'rgba(153, 102, 255, 0.5)'
+                ]
+              }]
+            };
+
+            // 使用深拷贝更新数据
+            this._charts.combination.data.labels = [...newData.labels];
+            this._charts.combination.data.datasets = newData.datasets.map(dataset => ({...dataset}));
+            
+            requestAnimationFrame(() => {
+              this._charts.combination.update('none');
+            });
+          } catch (error) {
+            console.error('更新组合键图表时出错:', error);
+          }
         }
       },
       mounted() {
-        this.initCharts();
-        
-        ipcRenderer.on('keyEvent', (_, data) => {
-          if (data.type === 'keyboard') {
+        this.$nextTick(() => {
+          this.initCharts();
+          
+          // 事件监听
+          ipcRenderer.on('keyEvent', (_, data) => {
             this.handleKeyboardEvent(data);
-          }
+          });
+
+          // 定时更新
+          setInterval(() => {
+            this.updateCharts();
+          }, 1000);
         });
-
-        ipcRenderer.on('mouseEvent', (_, data) => {
-          if (data.type === 'mouse') {
-            this.handleMouseEvent(data);
-          }
-        });
-
-        setInterval(() => {
-          this.updateSummary();
-        }, 1000);
-
-        setInterval(() => {
-          this.updateCharts();
-        }, 30000);
+      },
+      beforeUnmount() {
+        // 清理资源
+        if (window._keyboardCharts) {
+          Object.values(window._keyboardCharts).forEach(chart => {
+            if (chart) chart.destroy();
+          });
+        }
+        if (window._chartUpdateTimeout) {
+          clearTimeout(window._chartUpdateTimeout);
+        }
+        if (window._chartRAF) {
+          cancelAnimationFrame(window._chartRAF);
+        }
       }
     });
     

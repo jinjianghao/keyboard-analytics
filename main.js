@@ -1,6 +1,7 @@
 const { app, BrowserWindow } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
+const { handleKeyPress } = require('./index.js');
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -126,6 +127,9 @@ const keyCodeToStringModifier = {
   62: "RightControl",
   63: "Function"
 };
+// 添加对数据分析存储的支持
+require('./index.js');
+
 // 添加对 NSApplicationDelegate 的支持
 app.applicationSupportsSecureRestorableState = true;
 
@@ -165,6 +169,8 @@ function createWindow() {
             type: 'keyboard',
             key: keyName
           });
+          
+          handleKeyPress(keyName);
         } else {
           console.warn(`未定义的按键: ${e.keyCode}`);
         }
@@ -199,6 +205,7 @@ function createWindow() {
     uIOhook.start();
 
     console.log('键盘和鼠标监听器已启动');
+
   } catch (error) {
     console.error('监听器初始化失败:', error);
   }
