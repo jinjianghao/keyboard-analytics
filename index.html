@@ -15,7 +15,7 @@
     }
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: 1fr;
       gap: 20px;
       margin-bottom: 20px;
     }
@@ -24,16 +24,21 @@
       padding: 20px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      min-height: 400px;
     }
     .summary-box {
       background: white;
       padding: 20px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
     }
     h2 {
       margin-top: 0;
       color: #333;
+      grid-column: 1 / -1;
     }
     .frequency-summary {
       margin-bottom: 15px;
@@ -49,12 +54,21 @@
       padding: 10px;
       background: #f8f9fa;
       border-radius: 4px;
+      height: fit-content;
     }
     
     .stat-section h3 {
       margin: 0 0 10px 0;
       color: #495057;
       font-size: 1.1em;
+    }
+    
+    .running-time {
+      grid-column: 1 / -1;
+      text-align: center;
+      font-size: 1.1em;
+      color: #666;
+      margin-top: 10px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.js"></script>
@@ -66,8 +80,9 @@
       <h1>键盘使用统计</h1>
       
       <div class="stats-grid">
-        <div class="summary-box">
+        <div class="summary-box" style="grid-column: 1 / -1;">
           <h2>实时统计</h2>
+          <p class="running-time">已运行时间: {{formatDuration(stats.summary.totalTime)}}</p>
           <div class="stat-section">
             <h3>键盘统计</h3>
             <p>键盘按键次数: {{stats.keyboard.totalPresses}}</p>
@@ -81,22 +96,11 @@
             <p>中键点击: {{stats.mouse.middle}} 次</p>
             <p>总点击次数: {{stats.mouse.totalClicks}}</p>
           </div>
-          <p>已运行时间: {{formatDuration(stats.summary.totalTime)}}</p>
         </div>
         
-        <div class="chart-container">
+        <div class="chart-container" style="grid-column: 1 / -1;">
           <h2>最常用按键</h2>
           <canvas id="keyPressChart"></canvas>
-        </div>
-        
-        <div class="chart-container">
-          <h2>按键频率分布</h2>
-          <canvas id="keyDistributionChart"></canvas>
-        </div>
-        
-        <div class="chart-container">
-          <h2>组合键使用情况</h2>
-          <canvas id="combinationChart"></canvas>
         </div>
       </div>
     </div>
@@ -116,7 +120,9 @@
               keyPresses: {},
               combinationPresses: {},
               lastPressTime: null,
-              pressIntervals: []
+              pressIntervals: [],
+              pressStartTime: null,
+              recentPresses: []
             },
             mouse: {
               left: 0,
@@ -229,12 +235,48 @@
             });
           });
         },
+        updateKeyboardStats() {
+          const now = Date.now();
+          const keyboard = this.stats.keyboard;
+          
+          // 更新按键间隔
+          if (keyboard.lastPressTime) {
+            const interval = now - keyboard.lastPressTime;
+            keyboard.pressIntervals.push(interval);
+            // 只保留最近100个间隔用于计算平均值
+            if (keyboard.pressIntervals.length > 100) {
+              keyboard.pressIntervals.shift();
+            }
+            // 计算平均间隔
+            keyboard.averageInterval = keyboard.pressIntervals.reduce((a, b) => a + b, 0) / keyboard.pressIntervals.length;
+          }
+          
+          // 更新按键速度（每分钟按键次数）
+          if (!keyboard.pressStartTime) {
+            keyboard.pressStartTime = now;
+          }
+          
+          // 添加当前按键时间到最近按键列表
+          keyboard.recentPresses.push(now);
+          
+          // 只保留最近1分钟内的按键
+          const oneMinuteAgo = now - 60000;
+          keyboard.recentPresses = keyboard.recentPresses.filter(time => time > oneMinuteAgo);
+          
+          // 计算每分钟平均速度
+          keyboard.averageSpeed = keyboard.recentPresses.length;
+          
+          keyboard.lastPressTime = now;
+        },
         handleKeyboardEvent(data) {
           const { key, timestamp } = data;
           
           // 更新基本统计
           this.stats.keyboard.totalPresses++;
           this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
+          
+          // 更新平均速度和间隔
+          this.updateKeyboardStats();
           
           // 更新时间帧数据
           this.updateTimeFrames('keyboard', key, timestamp);
@@ -376,10 +418,35 @@
           } catch (error) {
             console.error('更新组合键图表时出错:', error);
           }
+        },
+        async loadDailyStats() {
+          try {
+            const dailyStats = await ipcRenderer.invoke('get-daily-stats');
+            if (dailyStats) {
+              this.stats.keyboard.keyPresses = dailyStats.keyPresses;
+              this.stats.keyboard.combinationPresses = dailyStats.combinationPresses;
+              this.stats.keyboard.totalPresses = dailyStats.totalPresses;
+              
+              // 重置实时统计相关的数据
+              this.stats.keyboard.pressStartTime = Date.now();
+              this.stats.keyboard.recentPresses = [];
+              this.stats.keyboard.pressIntervals = [];
+              this.stats.keyboard.averageSpeed = 0;
+              this.stats.keyboard.averageInterval = 0;
+              
+              // 更新图表
+              this.updateCharts();
+            }
+          } catch (error) {
+            console.error('加载每日统计失败:', error);
+          }
         }
       },
-      mounted() {
-        this.$nextTick(() => {
+      async mounted() {
+        this.$nextTick(async () => {
+          // 初始化时加载当天数据
+          await this.loadDailyStats();
+          
           this.initCharts();
           
           // 添加事件监听

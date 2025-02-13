@@ -1,7 +1,7 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
-const { handleKeyPress } = require('./index.js');
+const { handleKeyPress, getDailyStats } = require('./index.js');
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -213,6 +213,16 @@ function createWindow() {
     uIOhook.start();
 
     console.log('键盘和鼠标监听器已启动');
+
+    // 添加 IPC 监听器
+    ipcMain.handle('get-daily-stats', async () => {
+      try {
+        return await getDailyStats();
+      } catch (error) {
+        console.error('获取每日统计失败:', error);
+        return null;
+      }
+    });
 
   } catch (error) {
     console.error('监听器初始化失败:', error);
