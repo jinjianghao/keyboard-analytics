@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>键盘统计分析</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .chart-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .summary-box {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      margin-top: 0;
+      color: #333;
+    }
+    .frequency-summary {
+      margin-bottom: 15px;
+      padding: 10px;
+      background: #e8f5e9;
+      border-radius: 4px;
+    }
+    .frequency-summary p {
+      margin: 5px 0;
+    }
+    .stat-section {
+      margin: 10px 0;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+    
+    .stat-section h3 {
+      margin: 0 0 10px 0;
+      color: #495057;
+      font-size: 1.1em;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <h1>键盘使用统计</h1>
+      
+      <div class="stats-grid">
+        <div class="summary-box">
+          <h2>实时统计</h2>
+          <div class="stat-section">
+            <h3>键盘统计</h3>
+            <p>键盘按键次数: {{stats.keyboard.totalPresses}}</p>
+            <p>平均按键速度: {{Math.round(stats.keyboard.averageSpeed)}} 次/分钟</p>
+            <p>平均按键间隔: {{Math.round(stats.keyboard.averageInterval)}}ms</p>
+          </div>
+          <div class="stat-section">
+            <h3>鼠标统计</h3>
+            <p>左键点击: {{stats.mouse.left}} 次</p>
+            <p>右键点击: {{stats.mouse.right}} 次</p>
+            <p>中键点击: {{stats.mouse.middle}} 次</p>
+            <p>总点击次数: {{stats.mouse.totalClicks}}</p>
+          </div>
+          <p>已运行时间: {{formatDuration(stats.summary.totalTime)}}</p>
+        </div>
+        
+        <div class="chart-container">
+          <h2>最常用按键</h2>
+          <canvas id="keyPressChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+          <h2>按键频率分布</h2>
+          <canvas id="keyDistributionChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+          <h2>组合键使用情况</h2>
+          <canvas id="combinationChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    const app = Vue.createApp({
+      data() {
+        return {
+          stats: {
+            keyboard: {
+              keyPresses: {},
+              combinationPresses: {},
+              totalPresses: 0,
+              lastPressTime: null,
+              pressIntervals: [],
+              averageSpeed: 0,
+              averageInterval: 0
+            },
+            mouse: {
+              left: 0,
+              right: 0,
+              middle: 0,
+              totalClicks: 0,
+              lastClickTime: null,
+              clickIntervals: []
+            },
+            timeFrames: {
+              last30sec: { keyboard: {}, mouse: {} },
+              last5min: { keyboard: {}, mouse: {} },
+              last30min: { keyboard: {}, mouse: {} }
+            },
+            summary: {
+              totalTime: 0,
+              startTime: Date.now()
+            }
+          },
+          charts: {},
+          lastChartUpdate: Date.now()
+        }
+      },
+      methods: {
+        formatDuration(ms) {
+          const seconds = Math.floor(ms / 1000);
+          const minutes = Math.floor(seconds / 60);
+          const hours = Math.floor(minutes / 60);
+          return `${hours}小时 ${minutes % 60}分钟 ${seconds % 60}秒`;
+        },
+        handleKeyboardEvent(data) {
+          const { key, timestamp } = data;
+          
+          this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
+          this.stats.keyboard.totalPresses++;
+          
+          if (key.includes('+')) {
+            this.stats.keyboard.combinationPresses[key] = 
+              (this.stats.keyboard.combinationPresses[key] || 0) + 1;
+          }
+          
+          if (this.stats.keyboard.lastPressTime) {
+            const interval = timestamp - this.stats.keyboard.lastPressTime;
+            this.stats.keyboard.pressIntervals.push(interval);
+          }
+          this.stats.keyboard.lastPressTime = timestamp;
+          
+          this.updateTimeFrames('keyboard', key, timestamp);
+        },
+        handleMouseEvent(data) {
+          const { name, timestamp } = data;
+          
+          if (name === '左键') {
+            this.stats.mouse.left++;
+            this.stats.mouse.totalClicks++;
+          } else if (name === '右键') {
+            this.stats.mouse.right++;
+            this.stats.mouse.totalClicks++;
+          } else if (name === '中键') {
+            this.stats.mouse.middle++;
+            this.stats.mouse.totalClicks++;
+          }
+          
+          if (this.stats.mouse.lastClickTime) {
+            const interval = timestamp - this.stats.mouse.lastClickTime;
+            this.stats.mouse.clickIntervals.push(interval);
+          }
+          this.stats.mouse.lastClickTime = timestamp;
+          
+          this.updateTimeFrames('mouse', name, timestamp);
+        },
+        updateTimeFrames(type, key, timestamp) {
+          const now = Date.now();
+          const frames = {
+            last30sec: 30 * 1000,
+            last5min: 5 * 60 * 1000,
+            last30min: 30 * 60 * 1000
+          };
+
+          Object.entries(frames).forEach(([frame, duration]) => {
+            this.cleanTimeFrameData(frame, duration);
+            
+            if (!this.stats.timeFrames[frame][type][key]) {
+              this.stats.timeFrames[frame][type][key] = {
+                count: 1,
+                timestamps: [timestamp]
+              };
+            } else {
+              this.stats.timeFrames[frame][type][key].count++;
+              this.stats.timeFrames[frame][type][key].timestamps.push(timestamp);
+            }
+          });
+        },
+        cleanTimeFrameData(frame, duration) {
+          const now = Date.now();
+          const cutoff = now - duration;
+
+          ['keyboard', 'mouse'].forEach(type => {
+            Object.entries(this.stats.timeFrames[frame][type]).forEach(([key, data]) => {
+              data.timestamps = data.timestamps.filter(t => t > cutoff);
+              data.count = data.timestamps.length;
+              if (data.count === 0) {
+                delete this.stats.timeFrames[frame][type][key];
+              }
+            });
+          });
+        },
+        updateSummary() {
+          const now = Date.now();
+          const timeDiff = now - this.stats.summary.startTime;
+          
+          this.stats.keyboard.averageSpeed = 
+            (this.stats.keyboard.totalPresses / timeDiff) * 60000;
+          
+          this.stats.keyboard.averageInterval = 
+            this.stats.keyboard.pressIntervals.length > 0
+              ? this.stats.keyboard.pressIntervals.reduce((a, b) => a + b, 0) / 
+                this.stats.keyboard.pressIntervals.length
+              : 0;
+          
+          this.stats.summary.totalTime = timeDiff;
+        },
+        updateCharts() {
+          this.updateKeyPressChart();
+          this.updateDistributionChart();
+          this.updateCombinationChart();
+        },
+        initCharts() {
+          this.charts.keyPress = new Chart(
+            document.getElementById('keyPressChart'),
+            {
+              type: 'bar',
+              data: {
+                labels: [],
+                datasets: [{
+                  label: '按键次数',
+                  data: [],
+                  backgroundColor: 'rgba(54, 162, 235, 0.5)'
+                }]
+              },
+              options: {
+                responsive: true,
+                animation: { duration: 200 },
+                scales: { y: { beginAtZero: true } }
+              }
+            }
+          );
+
+          this.charts.distribution = new Chart(
+            document.getElementById('keyDistributionChart'),
+            {
+              type: 'line',
+              data: {
+                labels: [],
+                datasets: [{
+                  label: '每秒按键次数',
+                  data: [],
+                  borderColor: 'rgba(75, 192, 192, 1)',
+                  tension: 0.1,
+                  fill: true,
+                  backgroundColor: 'rgba(75, 192, 192, 0.2)'
+                }]
+              },
+              options: {
+                responsive: true,
+                scales: { y: { beginAtZero: true } }
+              }
+            }
+          );
+
+          this.charts.combination = new Chart(
+            document.getElementById('combinationChart'),
+            {
+              type: 'doughnut',
+              data: {
+                labels: [],
+                datasets: [{
+                  data: [],
+                  backgroundColor: [
+                    'rgba(255, 99, 132, 0.5)',
+                    'rgba(54, 162, 235, 0.5)',
+                    'rgba(255, 206, 86, 0.5)',
+                    'rgba(75, 192, 192, 0.5)',
+                    'rgba(153, 102, 255, 0.5)'
+                  ]
+                }]
+              },
+              options: {
+                responsive: true,
+                plugins: {
+                  legend: {
+                    position: 'right'
+                  }
+                }
+              }
+            }
+          );
+        },
+        updateKeyPressChart() {
+          if (!this.charts.keyPress) return;
+          
+          const sortedKeys = Object.entries(this.stats.keyboard.keyPresses)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+          
+          this.charts.keyPress.data.labels = sortedKeys.map(([key]) => key);
+          this.charts.keyPress.data.datasets[0].data = sortedKeys.map(([,count]) => count);
+          this.charts.keyPress.update();
+        },
+        updateDistributionChart() {
+          if (!this.charts.distribution) return;
+          
+          const now = Date.now();
+          const timePoints = Array.from({length: 30}, (_, i) => now - (i * 1000));
+          const distribution = timePoints.map(time => {
+            return Object.values(this.stats.timeFrames.last30sec.keyboard)
+              .reduce((sum, data) => {
+                return sum + data.timestamps.filter(t => t > time - 1000 && t <= time).length;
+              }, 0);
+          });
+
+          this.charts.distribution.data.labels = Array.from({length: 30}, (_, i) => `${i}秒前`);
+          this.charts.distribution.data.datasets[0].data = distribution.reverse();
+          this.charts.distribution.update();
+        },
+        updateCombinationChart() {
+          if (!this.charts.combination) return;
+          
+          const combos = Object.entries(this.stats.keyboard.combinationPresses)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 5);
+          
+          this.charts.combination.data.labels = combos.map(([combo]) => combo);
+          this.charts.combination.data.datasets[0].data = combos.map(([,count]) => count);
+          this.charts.combination.update();
+        }
+      },
+      mounted() {
+        this.initCharts();
+        
+        ipcRenderer.on('keyEvent', (_, data) => {
+          if (data.type === 'keyboard') {
+            this.handleKeyboardEvent(data);
+          }
+        });
+
+        ipcRenderer.on('mouseEvent', (_, data) => {
+          if (data.type === 'mouse') {
+            this.handleMouseEvent(data);
+          }
+        });
+
+        setInterval(() => {
+          this.updateSummary();
+        }, 1000);
+
+        setInterval(() => {
+          this.updateCharts();
+        }, 30000);
+      }
+    });
+    
+    app.mount('#app');
+  </script>
+</body>
+</html> 
