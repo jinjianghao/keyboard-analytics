@@ -225,6 +225,54 @@ class KeyboardStatsManager {
       console.log('没有快捷键需要同步');
     }
   }
+
+  // 添加获取当天数据的方法
+  async getDailyStats() {
+    return new Promise((resolve, reject) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const query = `
+        SELECT 
+          n.key as key,
+          n.count as count,
+          'normal' as type
+        FROM normal_keys n
+        WHERE DATE(n.timestamp) = DATE('now', 'localtime')
+        UNION ALL
+        SELECT 
+          s.combination as key,
+          s.count as count,
+          'shortcut' as type
+        FROM shortcut_keys s
+        WHERE DATE(s.timestamp) = DATE('now', 'localtime')
+      `;
+
+      this.db.all(query, [], (err, rows) => {
+        if (err) {
+          console.error('获取当天数据失败:', err);
+          reject(err);
+        } else {
+          const stats = {
+            keyPresses: {},
+            combinationPresses: {},
+            totalPresses: 0
+          };
+
+          rows.forEach(row => {
+            if (row.type === 'normal') {
+              stats.keyPresses[row.key] = row.count;
+              stats.totalPresses += row.count;
+            } else {
+              stats.combinationPresses[row.key] = row.count;
+            }
+          });
+
+          resolve(stats);
+        }
+      });
+    });
+  }
 }
 
 // 创建并导出实例
@@ -233,5 +281,6 @@ const keyboardStats = new KeyboardStatsManager();
 console.log('KeyboardStatsManager 实例创建完成');
 
 module.exports = {
-  handleKeyPress: keyboardStats.handleKeyPress.bind(keyboardStats)
+  handleKeyPress: keyboardStats.handleKeyPress.bind(keyboardStats),
+  getDailyStats: keyboardStats.getDailyStats.bind(keyboardStats)
 };
