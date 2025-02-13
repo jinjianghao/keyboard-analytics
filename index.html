@@ -242,29 +242,41 @@
           // 更新按键间隔
           if (keyboard.lastPressTime) {
             const interval = now - keyboard.lastPressTime;
-            keyboard.pressIntervals.push(interval);
-            // 只保留最近100个间隔用于计算平均值
-            if (keyboard.pressIntervals.length > 100) {
-              keyboard.pressIntervals.shift();
+            // 只记录合理范围内的间隔（比如 50ms 到 5000ms 之间）
+            if (interval >= 50 && interval <= 5000) {
+              keyboard.pressIntervals.push(interval);
+              // 只保留最近100个有效间隔
+              if (keyboard.pressIntervals.length > 100) {
+                keyboard.pressIntervals.shift();
+              }
+              // 计算平均间隔（去除异常值后的平均）
+              const validIntervals = keyboard.pressIntervals.slice().sort((a, b) => a - b);
+              // 去除最高和最低的 10% 的值
+              const cutoff = Math.floor(validIntervals.length * 0.1);
+              const trimmedIntervals = validIntervals.slice(cutoff, -cutoff || undefined);
+              keyboard.averageInterval = trimmedIntervals.length > 0 
+                ? trimmedIntervals.reduce((a, b) => a + b, 0) / trimmedIntervals.length 
+                : 0;
             }
-            // 计算平均间隔
-            keyboard.averageInterval = keyboard.pressIntervals.reduce((a, b) => a + b, 0) / keyboard.pressIntervals.length;
           }
           
           // 更新按键速度（每分钟按键次数）
-          if (!keyboard.pressStartTime) {
-            keyboard.pressStartTime = now;
+          // 使用滑动窗口计算按键速度
+          const oneMinuteAgo = now - 60000;
+          keyboard.recentPresses.push(now);
+          // 移除一分钟之前的按键记录
+          while (keyboard.recentPresses.length > 0 && keyboard.recentPresses[0] < oneMinuteAgo) {
+            keyboard.recentPresses.shift();
           }
           
-          // 添加当前按键时间到最近按键列表
-          keyboard.recentPresses.push(now);
-          
-          // 只保留最近1分钟内的按键
-          const oneMinuteAgo = now - 60000;
-          keyboard.recentPresses = keyboard.recentPresses.filter(time => time > oneMinuteAgo);
-          
-          // 计算每分钟平均速度
-          keyboard.averageSpeed = keyboard.recentPresses.length;
+          // 计算实时的每分钟按键速度
+          const timeWindow = Math.min(60000, now - keyboard.recentPresses[0] || 0);
+          if (timeWindow > 0) {
+            // 将实际时间窗口内的按键数换算成每分钟的速度
+            keyboard.averageSpeed = Math.round((keyboard.recentPresses.length * 60000) / timeWindow);
+          } else {
+            keyboard.averageSpeed = 0;
+          }
           
           keyboard.lastPressTime = now;
         },
