@@ -1,6 +1,7 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
+const { handleKeyPress, getDailyStats } = require('./index.js');
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -126,6 +127,9 @@ const keyCodeToStringModifier = {
   62: "RightControl",
   63: "Function"
 };
+// 添加对数据分析存储的支持
+require('./index.js');
+
 // 添加对 NSApplicationDelegate 的支持
 app.applicationSupportsSecureRestorableState = true;
 
@@ -165,6 +169,8 @@ function createWindow() {
             type: 'keyboard',
             key: keyName
           });
+          
+          handleKeyPress(keyName);
         } else {
           console.warn(`未定义的按键: ${e.keyCode}`);
         }
@@ -188,17 +194,36 @@ function createWindow() {
           return; // 忽略其他按钮
       }
 
-      mainWindow.webContents.send('mouseEvent', {
-        type: 'mouse',
-        name: buttonName,
-        timestamp: Date.now()
-      });
+      // 发送事件到渲染进程
+      try {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send('mouseEvent', {
+            type: 'mouse',
+            name: buttonName,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        console.error('发送鼠标事件失败:', error);
+      }
     });
 
     // 启动 uIOhook
     uIOhook.start();
 
     console.log('键盘和鼠标监听器已启动');
+
+    // 添加 IPC 监听器
+    ipcMain.handle('get-daily-stats', async () => {
+      try {
+        return await getDailyStats();
+      } catch (error) {
+        console.error('获取每日统计失败:', error);
+        return null;
+      }
+    });
+
   } catch (error) {
     console.error('监听器初始化失败:', error);
   }
@@ -230,7 +255,11 @@ app.on('window-all-closed', () => {
 
 // 清理资源
 app.on('before-quit', () => {
-  uIOhook.stop();
+  try {
+    uIOhook.stop();
+  } catch (error) {
+    console.error('停止 uIOhook 失败:', error);
+  }
 });
 
 // 处理未捕获的异常
