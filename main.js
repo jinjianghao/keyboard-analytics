@@ -194,11 +194,19 @@ function createWindow() {
           return; // 忽略其他按钮
       }
 
-      mainWindow.webContents.send('mouseEvent', {
-        type: 'mouse',
-        name: buttonName,
-        timestamp: Date.now()
-      });
+      // 发送事件到渲染进程
+      try {
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send('mouseEvent', {
+            type: 'mouse',
+            name: buttonName,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        console.error('发送鼠标事件失败:', error);
+      }
     });
 
     // 启动 uIOhook
@@ -237,7 +245,11 @@ app.on('window-all-closed', () => {
 
 // 清理资源
 app.on('before-quit', () => {
-  uIOhook.stop();
+  try {
+    uIOhook.stop();
+  } catch (error) {
+    console.error('停止 uIOhook 失败:', error);
+  }
 });
 
 // 处理未捕获的异常
