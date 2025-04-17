@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
-const { handleKeyPress, getDailyStats } = require('./index.js');
+const { handleKeyPress, getDailyStats, handleMouseEvent } = require('./index.js');
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -138,10 +138,6 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'IMEBasedTextInput');
 }
 
-// class KeyStatsCollector {
-//   // ... 保持原有代码不变 ...
-// }
-
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -193,6 +189,8 @@ function createWindow() {
         default:
           return; // 忽略其他按钮
       }
+      
+      handleMouseEvent(buttonName); // 新增：统计鼠标事件
 
       // 发送事件到渲染进程
       try {
