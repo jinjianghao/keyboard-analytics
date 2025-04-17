@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
-const { handleKeyPress, getDailyStats } = require('./index.js');
+const { handleKeyPress, getDailyStats, handleMouseEvent } = require('./index.js');
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -138,10 +138,6 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'IMEBasedTextInput');
 }
 
-// class KeyStatsCollector {
-//   // ... 保持原有代码不变 ...
-// }
-
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -156,20 +152,20 @@ function createWindow() {
   try {
     // 初始化键盘监听
     const keyboard = new GlobalKeyboardListener();
-    
+
     keyboard.addListener(function(e, down) {
       if (e.name && e.name.toLowerCase().includes('mouse')) return;
       if (e.state === 'DOWN') return;
       if (down) {
         let keyName = keyCodeToStringNormal[e.keyCode] || keyCodeToStringModifier[e.keyCode] || e.name;
         console.log(keyName);
-        
+
         if (keyName) {
           mainWindow.webContents.send('keyEvent', {
             type: 'keyboard',
             key: keyName
           });
-          
+
           handleKeyPress(keyName);
         } else {
           console.warn(`未定义的按键: ${e.keyCode}`);
@@ -193,6 +189,8 @@ function createWindow() {
         default:
           return; // 忽略其他按钮
       }
+
+      handleMouseEvent(buttonName); // 新增：统计鼠标事件
 
       // 发送事件到渲染进程
       try {
@@ -234,10 +232,10 @@ function createWindow() {
 
 // 处理应用程序启动
 app.whenReady()
-  .then(createWindow)
-  .catch(error => {
-    console.error('应用启动失败:', error);
-  });
+    .then(createWindow)
+    .catch(error => {
+      console.error('应用启动失败:', error);
+    });
 
 // 处理窗口激活
 app.on('activate', () => {

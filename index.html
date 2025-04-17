@@ -1,499 +1,499 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>键盘统计分析</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f5f5f5;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 20px;
-      margin-bottom: 20px;
-    }
-    .chart-container {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      min-height: 400px;
-    }
-    .summary-box {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 20px;
-    }
-    h2 {
-      margin-top: 0;
-      color: #333;
-      grid-column: 1 / -1;
-    }
-    .frequency-summary {
-      margin-bottom: 15px;
-      padding: 10px;
-      background: #e8f5e9;
-      border-radius: 4px;
-    }
-    .frequency-summary p {
-      margin: 5px 0;
-    }
-    .stat-section {
-      margin: 10px 0;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 4px;
-      height: fit-content;
-    }
-    
-    .stat-section h3 {
-      margin: 0 0 10px 0;
-      color: #495057;
-      font-size: 1.1em;
-    }
-    
-    .running-time {
-      grid-column: 1 / -1;
-      text-align: center;
-      font-size: 1.1em;
-      color: #666;
-      margin-top: 10px;
-    }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>键盘统计分析</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 400px;
+        }
+        .summary-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+            grid-column: 1 / -1;
+        }
+        .frequency-summary {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 4px;
+        }
+        .frequency-summary p {
+            margin: 5px 0;
+        }
+        .stat-section {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            height: fit-content;
+        }
+
+        .stat-section h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 1.1em;
+        }
+
+        .running-time {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-size: 1.1em;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.15/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <div id="app">
+<div id="app">
     <div class="container">
-      <h1>键盘使用统计</h1>
-      
-      <div class="stats-grid">
-        <div class="summary-box" style="grid-column: 1 / -1;">
-          <h2>实时统计</h2>
-          <p class="running-time">已运行时间: {{formatDuration(stats.summary.totalTime)}}</p>
-          <div class="stat-section">
-            <h3>键盘统计</h3>
-            <p>键盘按键次数: {{stats.keyboard.totalPresses}}</p>
-            <p>平均按键速度: {{Math.round(stats.keyboard.averageSpeed)}} 次/分钟</p>
-            <p>平均按键间隔: {{Math.round(stats.keyboard.averageInterval)}}ms</p>
-          </div>
-          <div class="stat-section">
-            <h3>鼠标统计</h3>
-            <p>左键点击: {{stats.mouse.left}} 次</p>
-            <p>右键点击: {{stats.mouse.right}} 次</p>
-            <p>中键点击: {{stats.mouse.middle}} 次</p>
-            <p>总点击次数: {{stats.mouse.totalClicks}}</p>
-          </div>
+        <h1>键盘使用统计</h1>
+
+        <div class="stats-grid">
+            <div class="summary-box" style="grid-column: 1 / -1;">
+                <h2>实时统计</h2>
+                <p class="running-time">已运行时间: {{formatDuration(stats.summary.totalTime)}}</p>
+                <div class="stat-section">
+                    <h3>键盘统计</h3>
+                    <p>键盘按键次数: {{stats.keyboard.totalPresses}}</p>
+                    <p>平均按键速度: {{Math.round(stats.keyboard.averageSpeed)}} 次/分钟</p>
+                    <p>平均按键间隔: {{Math.round(stats.keyboard.averageInterval)}}ms</p>
+                </div>
+                <div class="stat-section">
+                    <h3>鼠标统计</h3>
+                    <p>左键点击: {{stats.mouse.left}} 次</p>
+                    <p>右键点击: {{stats.mouse.right}} 次</p>
+                    <p>中键点击: {{stats.mouse.middle}} 次</p>
+                    <p>总点击次数: {{stats.mouse.totalClicks}}</p>
+                </div>
+            </div>
+
+            <div class="chart-container" style="grid-column: 1 / -1;">
+                <h2>最常用按键</h2>
+                <canvas id="keyPressChart"></canvas>
+            </div>
         </div>
-        
-        <div class="chart-container" style="grid-column: 1 / -1;">
-          <h2>最常用按键</h2>
-          <canvas id="keyPressChart"></canvas>
-        </div>
-      </div>
     </div>
-  </div>
+</div>
 
-  <script>
+<script>
     const { ipcRenderer } = require('electron');
-    
+
     const app = Vue.createApp({
-      data() {
-        return {
-          stats: {
-            keyboard: {
-              totalPresses: 0,
-              averageSpeed: 0,
-              averageInterval: 0,
-              keyPresses: {},
-              combinationPresses: {},
-              lastPressTime: null,
-              pressIntervals: [],
-              pressStartTime: null,
-              recentPresses: []
-            },
-            mouse: {
-              left: 0,
-              right: 0,
-              middle: 0,
-              totalClicks: 0,
-              lastClickTime: null,
-              clickIntervals: []
-            },
-            timeFrames: {
-              last30sec: {
-                keyboard: {},
-                mouse: {}
-              },
-              last5min: {
-                keyboard: {},
-                mouse: {}
-              },
-              last30min: {
-                keyboard: {},
-                mouse: {}
-              }
-            },
-            summary: {
-              totalTime: 0,
-              startTime: Date.now()
-            }
-          }
-        }
-      },
-      methods: {
-        updateRunningTime() {
-          const now = Date.now();
-          this.stats.summary.totalTime = now - this.stats.summary.startTime;
-        },
-        formatDuration(ms) {
-          const seconds = Math.floor(ms / 1000);
-          const minutes = Math.floor(seconds / 60);
-          const hours = Math.floor(minutes / 60);
-          return `${hours}小时 ${minutes % 60}分钟 ${seconds % 60}秒`;
-        },
-        initCharts() {
-          // 使用 window 对象存储图表实例，避免 Vue 的响应式系统
-          window._keyboardCharts = window._keyboardCharts || {};
-          
-          const keyPressCtx = document.getElementById('keyPressChart');
-          if (keyPressCtx) {
-            window._keyboardCharts.keyPress = new Chart(keyPressCtx, {
-              type: 'bar',
-              data: {
-                labels: [],
-                datasets: [{
-                  label: '按键次数',
-                  data: [],
-                  backgroundColor: 'rgba(54, 162, 235, 0.5)'
-                }]
-              },
-              options: {
-                responsive: true,
-                animation: false,
-                scales: { y: { beginAtZero: true } }
-              }
-            });
-          }
-        },
-        updateKeyPressChart() {
-          const chart = window._keyboardCharts?.keyPress;
-          if (!chart) return;
-          
-          try {
-            // 创建新的数据对象
-            const sortedKeys = Object.entries(this.stats.keyboard.keyPresses)
-              .sort(([,a], [,b]) => b - a)
-              .slice(0, 10);
-
-            const labels = sortedKeys.map(([key]) => key);
-            const data = sortedKeys.map(([,count]) => count);
-
-            // 直接更新数据
-            chart.data.labels = labels;
-            chart.data.datasets[0].data = data;
-            
-            // 使用 RAF 更新图表
-            window._chartRAF = window._chartRAF || requestAnimationFrame(() => {
-              chart.update('none');
-              window._chartRAF = null;
-            });
-          } catch (error) {
-            console.error('更新图表时出错:', error);
-          }
-        },
-        updateCharts() {
-          if (window._keyboardCharts?.keyPress) {
-            this.updateKeyPressChart();
-          }
-        },
-        cleanTimeFrameData(frame, duration) {
-          const now = Date.now();
-          const cutoff = now - duration;
-
-          Object.entries(this.stats.timeFrames[frame]).forEach(([type, data]) => {
-            Object.entries(data).forEach(([key, value]) => {
-              if (Array.isArray(value.timestamps)) {
-                value.timestamps = value.timestamps.filter(t => t > cutoff);
-                value.count = value.timestamps.length;
-                if (value.count === 0) {
-                  delete data[key];
+        data() {
+            return {
+                stats: {
+                    keyboard: {
+                        totalPresses: 0,
+                        averageSpeed: 0,
+                        averageInterval: 0,
+                        keyPresses: {},
+                        combinationPresses: {},
+                        lastPressTime: null,
+                        pressIntervals: [],
+                        pressStartTime: null,
+                        recentPresses: []
+                    },
+                    mouse: {
+                        left: 0,
+                        right: 0,
+                        middle: 0,
+                        totalClicks: 0,
+                        lastClickTime: null,
+                        clickIntervals: []
+                    },
+                    timeFrames: {
+                        last30sec: {
+                            keyboard: {},
+                            mouse: {}
+                        },
+                        last5min: {
+                            keyboard: {},
+                            mouse: {}
+                        },
+                        last30min: {
+                            keyboard: {},
+                            mouse: {}
+                        }
+                    },
+                    summary: {
+                        totalTime: 0,
+                        startTime: Date.now()
+                    }
                 }
-              }
-            });
-          });
-        },
-        updateKeyboardStats() {
-          const now = Date.now();
-          const keyboard = this.stats.keyboard;
-          
-          // 更新按键间隔
-          if (keyboard.lastPressTime) {
-            const interval = now - keyboard.lastPressTime;
-            // 只记录合理范围内的间隔（比如 50ms 到 5000ms 之间）
-            if (interval >= 50 && interval <= 5000) {
-              keyboard.pressIntervals.push(interval);
-              // 只保留最近100个有效间隔
-              if (keyboard.pressIntervals.length > 100) {
-                keyboard.pressIntervals.shift();
-              }
-              // 计算平均间隔（去除异常值后的平均）
-              const validIntervals = keyboard.pressIntervals.slice().sort((a, b) => a - b);
-              // 去除最高和最低的 10% 的值
-              const cutoff = Math.floor(validIntervals.length * 0.1);
-              const trimmedIntervals = validIntervals.slice(cutoff, -cutoff || undefined);
-              keyboard.averageInterval = trimmedIntervals.length > 0 
-                ? trimmedIntervals.reduce((a, b) => a + b, 0) / trimmedIntervals.length 
-                : 0;
             }
-          }
-          
-          // 更新按键速度（每分钟按键次数）
-          // 使用滑动窗口计算按键速度
-          const oneMinuteAgo = now - 60000;
-          keyboard.recentPresses.push(now);
-          // 移除一分钟之前的按键记录
-          while (keyboard.recentPresses.length > 0 && keyboard.recentPresses[0] < oneMinuteAgo) {
-            keyboard.recentPresses.shift();
-          }
-          
-          // 计算实时的每分钟按键速度
-          const timeWindow = Math.min(60000, now - keyboard.recentPresses[0] || 0);
-          if (timeWindow > 0) {
-            // 将实际时间窗口内的按键数换算成每分钟的速度
-            keyboard.averageSpeed = Math.round((keyboard.recentPresses.length * 60000) / timeWindow);
-          } else {
-            keyboard.averageSpeed = 0;
-          }
-          
-          keyboard.lastPressTime = now;
         },
-        handleKeyboardEvent(data) {
-          const { key, timestamp } = data;
-          
-          // 更新基本统计
-          this.stats.keyboard.totalPresses++;
-          this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
-          
-          // 更新平均速度和间隔
-          this.updateKeyboardStats();
-          
-          // 更新时间帧数据
-          this.updateTimeFrames('keyboard', key, timestamp);
-          
-          // 更新图表
-          this.debounceChartUpdate();
-        },
-        debounceChartUpdate() {
-          if (window._chartUpdateTimeout) {
-            clearTimeout(window._chartUpdateTimeout);
-          }
-          window._chartUpdateTimeout = setTimeout(() => {
-            this.updateCharts();
-          }, 100);
-        },
-        handleMouseEvent(data) {
-          const { name, timestamp } = data;
-          
-          // 更新点击次数
-          switch (name) {
-            case '左键':
-              this.stats.mouse.left++;
-              break;
-            case '右键':
-              this.stats.mouse.right++;
-              break;
-            case '中键':
-              this.stats.mouse.middle++;
-              break;
-          }
-          
-          // 更新总点击次数
-          this.stats.mouse.totalClicks = this.stats.mouse.left + 
-                                        this.stats.mouse.right + 
-                                        this.stats.mouse.middle;
-          
-          // 计算点击间隔
-          if (this.stats.mouse.lastClickTime) {
-            const interval = timestamp - this.stats.mouse.lastClickTime;
-            this.stats.mouse.clickIntervals.push(interval);
-            
-            // 保持最近的 100 个间隔用于计算平均值
-            if (this.stats.mouse.clickIntervals.length > 100) {
-              this.stats.mouse.clickIntervals.shift();
+        methods: {
+            updateRunningTime() {
+                const now = Date.now();
+                this.stats.summary.totalTime = now - this.stats.summary.startTime;
+            },
+            formatDuration(ms) {
+                const seconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                return `${hours}小时 ${minutes % 60}分钟 ${seconds % 60}秒`;
+            },
+            initCharts() {
+                // 使用 window 对象存储图表实例，避免 Vue 的响应式系统
+                window._keyboardCharts = window._keyboardCharts || {};
+
+                const keyPressCtx = document.getElementById('keyPressChart');
+                if (keyPressCtx) {
+                    window._keyboardCharts.keyPress = new Chart(keyPressCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: '按键次数',
+                                data: [],
+                                backgroundColor: 'rgba(54, 162, 235, 0.5)'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            animation: false,
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+                }
+            },
+            updateKeyPressChart() {
+                const chart = window._keyboardCharts?.keyPress;
+                if (!chart) return;
+
+                try {
+                    // 创建新的数据对象
+                    const sortedKeys = Object.entries(this.stats.keyboard.keyPresses)
+                        .sort(([,a], [,b]) => b - a)
+                        .slice(0, 10);
+
+                    const labels = sortedKeys.map(([key]) => key);
+                    const data = sortedKeys.map(([,count]) => count);
+
+                    // 直接更新数据
+                    chart.data.labels = labels;
+                    chart.data.datasets[0].data = data;
+
+                    // 使用 RAF 更新图表
+                    window._chartRAF = window._chartRAF || requestAnimationFrame(() => {
+                        chart.update('none');
+                        window._chartRAF = null;
+                    });
+                } catch (error) {
+                    console.error('更新图表时出错:', error);
+                }
+            },
+            updateCharts() {
+                if (window._keyboardCharts?.keyPress) {
+                    this.updateKeyPressChart();
+                }
+            },
+            cleanTimeFrameData(frame, duration) {
+                const now = Date.now();
+                const cutoff = now - duration;
+
+                Object.entries(this.stats.timeFrames[frame]).forEach(([type, data]) => {
+                    Object.entries(data).forEach(([key, value]) => {
+                        if (Array.isArray(value.timestamps)) {
+                            value.timestamps = value.timestamps.filter(t => t > cutoff);
+                            value.count = value.timestamps.length;
+                            if (value.count === 0) {
+                                delete data[key];
+                            }
+                        }
+                    });
+                });
+            },
+            updateKeyboardStats() {
+                const now = Date.now();
+                const keyboard = this.stats.keyboard;
+
+                // 更新按键间隔
+                if (keyboard.lastPressTime) {
+                    const interval = now - keyboard.lastPressTime;
+                    // 只记录合理范围内的间隔（比如 50ms 到 5000ms 之间）
+                    if (interval >= 50 && interval <= 5000) {
+                        keyboard.pressIntervals.push(interval);
+                        // 只保留最近100个有效间隔
+                        if (keyboard.pressIntervals.length > 100) {
+                            keyboard.pressIntervals.shift();
+                        }
+                        // 计算平均间隔（去除异常值后的平均）
+                        const validIntervals = keyboard.pressIntervals.slice().sort((a, b) => a - b);
+                        // 去除最高和最低的 10% 的值
+                        const cutoff = Math.floor(validIntervals.length * 0.1);
+                        const trimmedIntervals = validIntervals.slice(cutoff, -cutoff || undefined);
+                        keyboard.averageInterval = trimmedIntervals.length > 0
+                            ? trimmedIntervals.reduce((a, b) => a + b, 0) / trimmedIntervals.length
+                            : 0;
+                    }
+                }
+
+                // 更新按键速度（每分钟按键次数）
+                // 使用滑动窗口计算按键速度
+                const oneMinuteAgo = now - 60000;
+                keyboard.recentPresses.push(now);
+                // 移除一分钟之前的按键记录
+                while (keyboard.recentPresses.length > 0 && keyboard.recentPresses[0] < oneMinuteAgo) {
+                    keyboard.recentPresses.shift();
+                }
+
+                // 计算实时的每分钟按键速度
+                const timeWindow = Math.min(60000, now - keyboard.recentPresses[0] || 0);
+                if (timeWindow > 0) {
+                    // 将实际时间窗口内的按键数换算成每分钟的速度
+                    keyboard.averageSpeed = Math.round((keyboard.recentPresses.length * 60000) / timeWindow);
+                } else {
+                    keyboard.averageSpeed = 0;
+                }
+
+                keyboard.lastPressTime = now;
+            },
+            handleKeyboardEvent(data) {
+                const { key, timestamp } = data;
+
+                // 更新基本统计
+                this.stats.keyboard.totalPresses++;
+                this.stats.keyboard.keyPresses[key] = (this.stats.keyboard.keyPresses[key] || 0) + 1;
+
+                // 更新平均速度和间隔
+                this.updateKeyboardStats();
+
+                // 更新时间帧数据
+                this.updateTimeFrames('keyboard', key, timestamp);
+
+                // 更新图表
+                this.debounceChartUpdate();
+            },
+            debounceChartUpdate() {
+                if (window._chartUpdateTimeout) {
+                    clearTimeout(window._chartUpdateTimeout);
+                }
+                window._chartUpdateTimeout = setTimeout(() => {
+                    this.updateCharts();
+                }, 100);
+            },
+            handleMouseEvent(data) {
+                const { name, timestamp } = data;
+
+                // 更新点击次数
+                switch (name) {
+                    case '左键':
+                        this.stats.mouse.left++;
+                        break;
+                    case '右键':
+                        this.stats.mouse.right++;
+                        break;
+                    case '中键':
+                        this.stats.mouse.middle++;
+                        break;
+                }
+
+                // 更新总点击次数
+                this.stats.mouse.totalClicks = this.stats.mouse.left +
+                    this.stats.mouse.right +
+                    this.stats.mouse.middle;
+
+                // 计算点击间隔
+                if (this.stats.mouse.lastClickTime) {
+                    const interval = timestamp - this.stats.mouse.lastClickTime;
+                    this.stats.mouse.clickIntervals.push(interval);
+
+                    // 保持最近的 100 个间隔用于计算平均值
+                    if (this.stats.mouse.clickIntervals.length > 100) {
+                        this.stats.mouse.clickIntervals.shift();
+                    }
+                }
+                this.stats.mouse.lastClickTime = timestamp;
+
+                this.updateTimeFrames('mouse', name, timestamp);
+            },
+            updateTimeFrames(type, key, timestamp) {
+                const now = Date.now();
+                const frames = {
+                    last30sec: 30 * 1000,
+                    last5min: 5 * 60 * 1000,
+                    last30min: 30 * 60 * 1000
+                };
+
+                Object.entries(frames).forEach(([frame, duration]) => {
+                    this.cleanTimeFrameData(frame, duration);
+
+                    if (!this.stats.timeFrames[frame][type][key]) {
+                        this.stats.timeFrames[frame][type][key] = {
+                            count: 1,
+                            timestamps: [timestamp]
+                        };
+                    } else {
+                        this.stats.timeFrames[frame][type][key].count++;
+                        this.stats.timeFrames[frame][type][key].timestamps.push(timestamp);
+                    }
+                });
+            },
+            updateDistributionChart() {
+                if (!this._charts?.distribution) return;
+
+                try {
+                    const now = Date.now();
+                    const timePoints = Array.from({length: 30}, (_, i) => now - (i * 1000));
+                    const distribution = timePoints.map(time => {
+                        return Object.values(this.stats.timeFrames.last30sec.keyboard)
+                            .reduce((sum, data) => {
+                                return sum + (data.timestamps || [])
+                                    .filter(t => t > time - 1000 && t <= time).length;
+                            }, 0);
+                    });
+
+                    const newData = {
+                        labels: Array.from({length: 30}, (_, i) => `${i}秒前`),
+                        datasets: [{
+                            label: '每秒按键次数',
+                            data: distribution.reverse(),
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            tension: 0.1,
+                            fill: true,
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)'
+                        }]
+                    };
+
+                    // 使用深拷贝更新数据
+                    this._charts.distribution.data.labels = [...newData.labels];
+                    this._charts.distribution.data.datasets = newData.datasets.map(dataset => ({...dataset}));
+
+                    requestAnimationFrame(() => {
+                        this._charts.distribution.update('none');
+                    });
+                } catch (error) {
+                    console.error('更新分布图表时出错:', error);
+                }
+            },
+            updateCombinationChart() {
+                if (!this._charts?.combination) return;
+
+                try {
+                    const combos = Object.entries(this.stats.keyboard.combinationPresses || {})
+                        .sort(([,a], [,b]) => b - a)
+                        .slice(0, 5);
+
+                    const newData = {
+                        labels: combos.map(([combo]) => combo),
+                        datasets: [{
+                            data: combos.map(([,count]) => count),
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.5)',
+                                'rgba(54, 162, 235, 0.5)',
+                                'rgba(255, 206, 86, 0.5)',
+                                'rgba(75, 192, 192, 0.5)',
+                                'rgba(153, 102, 255, 0.5)'
+                            ]
+                        }]
+                    };
+
+                    // 使用深拷贝更新数据
+                    this._charts.combination.data.labels = [...newData.labels];
+                    this._charts.combination.data.datasets = newData.datasets.map(dataset => ({...dataset}));
+
+                    requestAnimationFrame(() => {
+                        this._charts.combination.update('none');
+                    });
+                } catch (error) {
+                    console.error('更新组合键图表时出错:', error);
+                }
+            },
+            async loadDailyStats() {
+                try {
+                    const dailyStats = await ipcRenderer.invoke('get-daily-stats');
+                    if (dailyStats) {
+                        this.stats.keyboard.keyPresses = dailyStats.keyPresses;
+                        this.stats.keyboard.combinationPresses = dailyStats.combinationPresses;
+                        this.stats.keyboard.totalPresses = dailyStats.totalPresses;
+
+                        // 重置实时统计相关的数据
+                        this.stats.keyboard.pressStartTime = Date.now();
+                        this.stats.keyboard.recentPresses = [];
+                        this.stats.keyboard.pressIntervals = [];
+                        this.stats.keyboard.averageSpeed = 0;
+                        this.stats.keyboard.averageInterval = 0;
+
+                        // 更新图表
+                        this.updateCharts();
+                    }
+                } catch (error) {
+                    console.error('加载每日统计失败:', error);
+                }
             }
-          }
-          this.stats.mouse.lastClickTime = timestamp;
-          
-          this.updateTimeFrames('mouse', name, timestamp);
         },
-        updateTimeFrames(type, key, timestamp) {
-          const now = Date.now();
-          const frames = {
-            last30sec: 30 * 1000,
-            last5min: 5 * 60 * 1000,
-            last30min: 30 * 60 * 1000
-          };
+        async mounted() {
+            this.$nextTick(async () => {
+                // 初始化时加载当天数据
+                await this.loadDailyStats();
 
-          Object.entries(frames).forEach(([frame, duration]) => {
-            this.cleanTimeFrameData(frame, duration);
-            
-            if (!this.stats.timeFrames[frame][type][key]) {
-              this.stats.timeFrames[frame][type][key] = {
-                count: 1,
-                timestamps: [timestamp]
-              };
-            } else {
-              this.stats.timeFrames[frame][type][key].count++;
-              this.stats.timeFrames[frame][type][key].timestamps.push(timestamp);
+                this.initCharts();
+
+                // 添加事件监听
+                ipcRenderer.on('keyEvent', (_, data) => {
+                    this.handleKeyboardEvent(data);
+                });
+
+                ipcRenderer.on('mouseEvent', (_, data) => {
+                    this.handleMouseEvent(data);
+                });
+
+                // 定时更新运行时间和图表
+                setInterval(() => {
+                    this.updateRunningTime();
+                    this.updateCharts();
+                }, 1000);
+            });
+        },
+        beforeUnmount() {
+            // 清理资源
+            if (window._keyboardCharts) {
+                Object.values(window._keyboardCharts).forEach(chart => {
+                    if (chart) chart.destroy();
+                });
             }
-          });
-        },
-        updateDistributionChart() {
-          if (!this._charts?.distribution) return;
-          
-          try {
-            const now = Date.now();
-            const timePoints = Array.from({length: 30}, (_, i) => now - (i * 1000));
-            const distribution = timePoints.map(time => {
-              return Object.values(this.stats.timeFrames.last30sec.keyboard)
-                .reduce((sum, data) => {
-                  return sum + (data.timestamps || [])
-                    .filter(t => t > time - 1000 && t <= time).length;
-                }, 0);
-            });
-
-            const newData = {
-              labels: Array.from({length: 30}, (_, i) => `${i}秒前`),
-              datasets: [{
-                label: '每秒按键次数',
-                data: distribution.reverse(),
-                borderColor: 'rgba(75, 192, 192, 1)',
-                tension: 0.1,
-                fill: true,
-                backgroundColor: 'rgba(75, 192, 192, 0.2)'
-              }]
-            };
-
-            // 使用深拷贝更新数据
-            this._charts.distribution.data.labels = [...newData.labels];
-            this._charts.distribution.data.datasets = newData.datasets.map(dataset => ({...dataset}));
-            
-            requestAnimationFrame(() => {
-              this._charts.distribution.update('none');
-            });
-          } catch (error) {
-            console.error('更新分布图表时出错:', error);
-          }
-        },
-        updateCombinationChart() {
-          if (!this._charts?.combination) return;
-          
-          try {
-            const combos = Object.entries(this.stats.keyboard.combinationPresses || {})
-              .sort(([,a], [,b]) => b - a)
-              .slice(0, 5);
-            
-            const newData = {
-              labels: combos.map(([combo]) => combo),
-              datasets: [{
-                data: combos.map(([,count]) => count),
-                backgroundColor: [
-                  'rgba(255, 99, 132, 0.5)',
-                  'rgba(54, 162, 235, 0.5)',
-                  'rgba(255, 206, 86, 0.5)',
-                  'rgba(75, 192, 192, 0.5)',
-                  'rgba(153, 102, 255, 0.5)'
-                ]
-              }]
-            };
-
-            // 使用深拷贝更新数据
-            this._charts.combination.data.labels = [...newData.labels];
-            this._charts.combination.data.datasets = newData.datasets.map(dataset => ({...dataset}));
-            
-            requestAnimationFrame(() => {
-              this._charts.combination.update('none');
-            });
-          } catch (error) {
-            console.error('更新组合键图表时出错:', error);
-          }
-        },
-        async loadDailyStats() {
-          try {
-            const dailyStats = await ipcRenderer.invoke('get-daily-stats');
-            if (dailyStats) {
-              this.stats.keyboard.keyPresses = dailyStats.keyPresses;
-              this.stats.keyboard.combinationPresses = dailyStats.combinationPresses;
-              this.stats.keyboard.totalPresses = dailyStats.totalPresses;
-              
-              // 重置实时统计相关的数据
-              this.stats.keyboard.pressStartTime = Date.now();
-              this.stats.keyboard.recentPresses = [];
-              this.stats.keyboard.pressIntervals = [];
-              this.stats.keyboard.averageSpeed = 0;
-              this.stats.keyboard.averageInterval = 0;
-              
-              // 更新图表
-              this.updateCharts();
+            if (window._chartUpdateTimeout) {
+                clearTimeout(window._chartUpdateTimeout);
             }
-          } catch (error) {
-            console.error('加载每日统计失败:', error);
-          }
+            if (window._chartRAF) {
+                cancelAnimationFrame(window._chartRAF);
+            }
         }
-      },
-      async mounted() {
-        this.$nextTick(async () => {
-          // 初始化时加载当天数据
-          await this.loadDailyStats();
-          
-          this.initCharts();
-          
-          // 添加事件监听
-          ipcRenderer.on('keyEvent', (_, data) => {
-            this.handleKeyboardEvent(data);
-          });
-          
-          ipcRenderer.on('mouseEvent', (_, data) => {
-            this.handleMouseEvent(data);
-          });
-
-          // 定时更新运行时间和图表
-          setInterval(() => {
-            this.updateRunningTime();
-            this.updateCharts();
-          }, 1000);
-        });
-      },
-      beforeUnmount() {
-        // 清理资源
-        if (window._keyboardCharts) {
-          Object.values(window._keyboardCharts).forEach(chart => {
-            if (chart) chart.destroy();
-          });
-        }
-        if (window._chartUpdateTimeout) {
-          clearTimeout(window._chartUpdateTimeout);
-        }
-        if (window._chartRAF) {
-          cancelAnimationFrame(window._chartRAF);
-        }
-      }
     });
-    
+
     app.mount('#app');
-  </script>
+</script>
 </body>
 </html> 

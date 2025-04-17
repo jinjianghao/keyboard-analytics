@@ -1,18 +1,25 @@
 const sqlite3 = require('sqlite3').verbose();
 const { ipcRenderer } = require('electron');
 
+// 1. 新增 mouse_events 表
 const DB_CONFIG = {
   path: 'keyboard_stats.db',
   tables: {
     normal_keys: `CREATE TABLE IF NOT EXISTS normal_keys (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT NOT NULL UNIQUE,
-      count INTEGER DEFAULT 0,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`,
+                                                           id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                           key TEXT NOT NULL UNIQUE,
+                                                           count INTEGER DEFAULT 0,
+                                                           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                  )`,
     shortcut_keys: `CREATE TABLE IF NOT EXISTS shortcut_keys (
+                                                               id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                               combination TEXT NOT NULL UNIQUE,
+                                                               count INTEGER DEFAULT 0,
+                                                               timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )`,
+    mouse_events: `CREATE TABLE IF NOT EXISTS mouse_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      combination TEXT NOT NULL UNIQUE,
+      button TEXT NOT NULL UNIQUE,
       count INTEGER DEFAULT 0,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
@@ -38,14 +45,15 @@ class KeyboardStatsManager {
         console.log('数据库连接成功:', DB_CONFIG.path);
       }
     });
-    
+
     // 2. 初始化缓存
     this.normalKeyCache = new Map();     // 普通按键缓存
     this.shortcutKeyCache = new Map();   // 快捷键缓存
-    
+    this.mouseEventCache = new Map();    // 鼠标事件缓存
+
     // 3. 创建数据库表
     this.initializeDatabase();
-    
+
     // 4. 设置定时同步任务
     this.setupIntervals();
     console.log('KeyboardStatsManager 初始化完成');
@@ -91,7 +99,7 @@ class KeyboardStatsManager {
 
     // 输出缓存状态
     console.log(`当前${keyType}缓存大小: ${cache.size}/${threshold}`);
-    
+
     // 检查是否需要同步到数据库
     if (cache.size >= threshold) {
       console.log(`${keyType}缓存达到阈值 ${threshold}，开始同步数据...`);
@@ -99,10 +107,42 @@ class KeyboardStatsManager {
     }
   }
 
+  // 新增 handleMouseEvent 方法
+  async handleMouseEvent(buttonName) {
+    const prevCount = this.mouseEventCache.get(buttonName) || 0;
+    this.mouseEventCache.set(buttonName, prevCount + 1);
+    console.log(`接收到鼠标事件: ${buttonName}, 累计次数: ${prevCount + 1}`);
+
+    // 缓存阈值可复用普通按键的
+    if (this.mouseEventCache.size >= CONSTANTS.NORMAL_CACHE_THRESHOLD) {
+      console.log(`鼠标事件缓存达到阈值，开始同步数据...`);
+      await this.syncMouseCacheToDatabase();
+    }
+  }
+
+  // 4. 新增 syncMouseCacheToDatabase
+  async syncMouseCacheToDatabase() {
+    const cache = this.mouseEventCache;
+    const tableName = 'mouse_events';
+    const keyColumn = 'button';
+
+    try {
+      await this.beginTransaction();
+      for (const [button, count] of cache.entries()) {
+        await this.updateKeyCount(tableName, keyColumn, button, count);
+      }
+      await this.commitTransaction();
+      cache.clear();
+    } catch (error) {
+      await this.rollbackTransaction();
+      console.error('同步鼠标数据失败:', error);
+    }
+  }
+
   // 判断是否为快捷键
   isShortcutKey(keyName) {
-    const isShortcut = keyName.includes('+') || 
-                      CONSTANTS.SPECIAL_KEYS.some(specialKey => keyName.includes(specialKey));
+    const isShortcut = keyName.includes('+') ||
+        CONSTANTS.SPECIAL_KEYS.some(specialKey => keyName.includes(specialKey));
     console.log(`按键类型检查: ${keyName} -> ${isShortcut ? '快捷键' : '普通按键'}`);
     return isShortcut;
   }
@@ -113,19 +153,19 @@ class KeyboardStatsManager {
     const cache = isShortcut ? this.shortcutKeyCache : this.normalKeyCache;
     const tableName = isShortcut ? 'shortcut_keys' : 'normal_keys';
     const keyColumn = isShortcut ? 'combination' : 'key';
-    
+
     try {
       // 2. 开始事务
       await this.beginTransaction();
-      
+
       // 3. 遍历缓存数据并更新数据库
       for (const [key, count] of cache.entries()) {
         await this.updateKeyCount(tableName, keyColumn, key, count);
       }
-      
+
       // 4. 提交事务
       await this.commitTransaction();
-      
+
       // 5. 清空已同步的缓存
       cache.clear();
     } catch (error) {
@@ -210,7 +250,7 @@ class KeyboardStatsManager {
   // 定时同步所有数据
   syncData() {
     console.log('执行定时同步检查...');
-    
+
     if (this.normalKeyCache.size > 0) {
       console.log(`发现 ${this.normalKeyCache.size} 个普通按键待同步`);
       this.syncCacheToDatabase(false);
@@ -224,6 +264,13 @@ class KeyboardStatsManager {
     } else {
       console.log('没有快捷键需要同步');
     }
+
+    if (this.mouseEventCache.size > 0) {
+      console.log(`发现 ${this.mouseEventCache.size} 个鼠标事件待同步`);
+      this.syncMouseCacheToDatabase();
+    } else {
+      console.log('没有鼠标事件需要同步');
+    }
   }
 
   // 添加获取当天数据的方法
@@ -231,16 +278,16 @@ class KeyboardStatsManager {
     return new Promise((resolve, reject) => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       const query = `
-        SELECT 
+        SELECT
           n.key as key,
           n.count as count,
           'normal' as type
         FROM normal_keys n
         WHERE DATE(n.timestamp) = DATE('now', 'localtime')
         UNION ALL
-        SELECT 
+        SELECT
           s.combination as key,
           s.count as count,
           'shortcut' as type
@@ -282,5 +329,6 @@ console.log('KeyboardStatsManager 实例创建完成');
 
 module.exports = {
   handleKeyPress: keyboardStats.handleKeyPress.bind(keyboardStats),
-  getDailyStats: keyboardStats.getDailyStats.bind(keyboardStats)
+  getDailyStats: keyboardStats.getDailyStats.bind(keyboardStats),
+  handleMouseEvent: keyboardStats.handleMouseEvent.bind(keyboardStats)
 };
