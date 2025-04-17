@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const { ipcRenderer } = require('electron');
 
+// 1. 新增 mouse_events 表
 const DB_CONFIG = {
   path: 'keyboard_stats.db',
   tables: {
@@ -13,6 +14,12 @@ const DB_CONFIG = {
     shortcut_keys: `CREATE TABLE IF NOT EXISTS shortcut_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       combination TEXT NOT NULL UNIQUE,
+      count INTEGER DEFAULT 0,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    mouse_events: `CREATE TABLE IF NOT EXISTS mouse_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      button TEXT NOT NULL UNIQUE,
       count INTEGER DEFAULT 0,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
@@ -42,6 +49,7 @@ class KeyboardStatsManager {
     // 2. 初始化缓存
     this.normalKeyCache = new Map();     // 普通按键缓存
     this.shortcutKeyCache = new Map();   // 快捷键缓存
+    this.mouseEventCache = new Map();    // 鼠标事件缓存
     
     // 3. 创建数据库表
     this.initializeDatabase();
@@ -96,6 +104,38 @@ class KeyboardStatsManager {
     if (cache.size >= threshold) {
       console.log(`${keyType}缓存达到阈值 ${threshold}，开始同步数据...`);
       await this.syncCacheToDatabase(isShortcut);
+    }
+  }
+
+  // 新增 handleMouseEvent 方法
+  async handleMouseEvent(buttonName) {
+    const prevCount = this.mouseEventCache.get(buttonName) || 0;
+    this.mouseEventCache.set(buttonName, prevCount + 1);
+    console.log(`接收到鼠标事件: ${buttonName}, 累计次数: ${prevCount + 1}`);
+
+    // 缓存阈值可复用普通按键的
+    if (this.mouseEventCache.size >= CONSTANTS.NORMAL_CACHE_THRESHOLD) {
+      console.log(`鼠标事件缓存达到阈值，开始同步数据...`);
+      await this.syncMouseCacheToDatabase();
+    }
+  }
+
+  // 4. 新增 syncMouseCacheToDatabase
+  async syncMouseCacheToDatabase() {
+    const cache = this.mouseEventCache;
+    const tableName = 'mouse_events';
+    const keyColumn = 'button';
+
+    try {
+      await this.beginTransaction();
+      for (const [button, count] of cache.entries()) {
+        await this.updateKeyCount(tableName, keyColumn, button, count);
+      }
+      await this.commitTransaction();
+      cache.clear();
+    } catch (error) {
+      await this.rollbackTransaction();
+      console.error('同步鼠标数据失败:', error);
     }
   }
 
@@ -224,6 +264,13 @@ class KeyboardStatsManager {
     } else {
       console.log('没有快捷键需要同步');
     }
+
+    if (this.mouseEventCache.size > 0) {
+      console.log(`发现 ${this.mouseEventCache.size} 个鼠标事件待同步`);
+      this.syncMouseCacheToDatabase();
+    } else {
+      console.log('没有鼠标事件需要同步');
+    }
   }
 
   // 添加获取当天数据的方法
@@ -282,5 +329,6 @@ console.log('KeyboardStatsManager 实例创建完成');
 
 module.exports = {
   handleKeyPress: keyboardStats.handleKeyPress.bind(keyboardStats),
-  getDailyStats: keyboardStats.getDailyStats.bind(keyboardStats)
+  getDailyStats: keyboardStats.getDailyStats.bind(keyboardStats),
+  handleMouseEvent: keyboardStats.handleMouseEvent.bind(keyboardStats)
 };
