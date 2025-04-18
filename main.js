@@ -178,13 +178,13 @@ function createWindow() {
       let buttonName;
       switch (e.button) {
         case 1:
-          buttonName = '左键';
+          buttonName = 'Left';
           break;
         case 2:
-          buttonName = '右键';
+          buttonName = 'Right';
           break;
         case 3:
-          buttonName = '中键';
+          buttonName = 'Middle';
           break;
         default:
           return; // 忽略其他按钮
