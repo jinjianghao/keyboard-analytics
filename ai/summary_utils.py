@@ -14,7 +14,8 @@ def generate_summary(user_question, sql, rows, columns):
             table_text += " | ".join(str(x) for x in row) + "\n"
 
     prompt = f"""
-你是一个有趣的数据库分析助手。请根据以下信息，用中文生成一段简洁有趣的分析总结，风格可以幽默、鼓励、调侃，适合普通用户阅读。
+    ### please only use chinese to manser my question!!!!
+你是一个数据库分析助手。请根据以下信息，用中文生成一段简洁有趣的分析总结，风格可以幽默、鼓励、调侃，适合普通用户阅读。
 
 【用户需求】
 {user_question}
@@ -24,7 +25,5 @@ def generate_summary(user_question, sql, rows, columns):
 
 【查询结果】
 {table_text}
-
-要求：只输出分析总结，不要输出SQL和表格，不要解释SQL。可以用emoji、网络流行语、拟人化等方式让总结更生动，要用中文。
 """
     return ask_ollama(prompt)
