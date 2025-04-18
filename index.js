@@ -169,8 +169,14 @@ class KeyboardStatsManager {
       // 5. 清空已同步的缓存
       cache.clear();
     } catch (error) {
-      // 6. 错误处理：回滚事务
-      await this.rollbackTransaction();
+      console.error('syncCacheToDatabase 出错:', error);
+      try {
+        await this.rollbackTransaction();
+      } catch (rollbackError) {
+        if (rollbackError.code !== 'SQLITE_ERROR') {
+          throw rollbackError;
+        }
+      }
     }
   }
 
