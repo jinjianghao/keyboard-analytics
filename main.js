@@ -235,6 +235,7 @@ function createWindow() {
 // 处理应用程序启动
 app.whenReady()
   .then(() => {
+    //测试需要注释
     // // 启动 Python AI 服务
     // pyProc = spawn('python3', ['ai/your_api_server.py'], {
     //   cwd: __dirname,
