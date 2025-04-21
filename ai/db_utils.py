@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_PATH = "./keyboard_stats.db"
+DB_PATH = "../keyboard_stats.db"
 
 def connect_db(db_path=DB_PATH):
     return sqlite3.connect(db_path)
