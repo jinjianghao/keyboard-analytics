@@ -50,11 +50,14 @@ class KeyboardStatsManager {
     this.normalKeyCache = new Map();     // 普通按键缓存
     this.shortcutKeyCache = new Map();   // 快捷键缓存
     this.mouseEventCache = new Map();    // 鼠标事件缓存
+
+    // 3. 初始化同步锁
+    this.syncLock = false;
     
-    // 3. 创建数据库表
+    // 4. 创建数据库表
     this.initializeDatabase();
     
-    // 4. 设置定时同步任务
+    // 5. 设置定时同步任务
     this.setupIntervals();
     console.log('KeyboardStatsManager 初始化完成');
   }
@@ -122,20 +125,41 @@ class KeyboardStatsManager {
 
   // 4. 新增 syncMouseCacheToDatabase
   async syncMouseCacheToDatabase() {
+    if (this.syncLock) {
+      console.log('已有同步任务在执行，跳过本次鼠标事件同步');
+      return;
+    }
+    this.syncLock = true;
     const cache = this.mouseEventCache;
     const tableName = 'mouse_events';
     const keyColumn = 'button';
 
+    let transactionStarted = false;
     try {
+      console.log('准备开启事务...');
       await this.beginTransaction();
+      transactionStarted = true;
+      console.log('事务已开启');
       for (const [button, count] of cache.entries()) {
         await this.updateKeyCount(tableName, keyColumn, button, count);
       }
       await this.commitTransaction();
+      console.log('事务提交成功');
       cache.clear();
     } catch (error) {
-      await this.rollbackTransaction();
-      console.error('同步鼠标数据失败:', error);
+      console.error('syncMouseCacheToDatabase 出错:', error);
+      if (transactionStarted) {
+        try {
+          await this.rollbackTransaction();
+          console.log('事务已回滚');
+        } catch (rollbackError) {
+          if (rollbackError.code !== 'SQLITE_ERROR') {
+            throw rollbackError;
+          }
+        }
+      }
+    } finally {
+      this.syncLock = false;
     }
   }
 
@@ -149,34 +173,43 @@ class KeyboardStatsManager {
 
   // 同步缓存到数据库
   async syncCacheToDatabase(isShortcut) {
-    // 1. 确定要操作的表和缓存
+    if (this.syncLock) {
+      console.log('已有同步任务在执行，跳过本次普通/快捷键同步');
+      return;
+    }
+    this.syncLock = true;
     const cache = isShortcut ? this.shortcutKeyCache : this.normalKeyCache;
     const tableName = isShortcut ? 'shortcut_keys' : 'normal_keys';
     const keyColumn = isShortcut ? 'combination' : 'key';
-    
+  
+    let transactionStarted = false;
     try {
-      // 2. 开始事务
+      console.log('准备开启事务...');
       await this.beginTransaction();
-      
-      // 3. 遍历缓存数据并更新数据库
+      transactionStarted = true;
+      console.log('事务已开启');
+  
       for (const [key, count] of cache.entries()) {
         await this.updateKeyCount(tableName, keyColumn, key, count);
       }
-      
-      // 4. 提交事务
+  
       await this.commitTransaction();
-      
-      // 5. 清空已同步的缓存
+      console.log('事务提交成功');
       cache.clear();
     } catch (error) {
       console.error('syncCacheToDatabase 出错:', error);
-      try {
-        await this.rollbackTransaction();
-      } catch (rollbackError) {
-        if (rollbackError.code !== 'SQLITE_ERROR') {
-          throw rollbackError;
+      if (transactionStarted) {
+        try {
+          await this.rollbackTransaction();
+          console.log('事务已回滚');
+        } catch (rollbackError) {
+          if (rollbackError.code !== 'SQLITE_ERROR') {
+            throw rollbackError;
+          }
         }
       }
+    } finally {
+      this.syncLock = false;
     }
   }
 
