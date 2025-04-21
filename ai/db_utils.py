@@ -22,3 +22,15 @@ def execute_sql(conn, sql):
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
     return rows, columns
+
+# 获取今日数据
+def get_today_stats():
+    conn = connect_db()
+    sql = "SELECT * FROM normal_keys WHERE date = date('now', 'localtime')"
+    rows, columns = execute_sql(conn, sql)
+    conn.close()
+    if rows:
+        # 将第一行 tuple 转成 dict
+        return dict(zip(columns, rows[0]))
+    else:
+        return None

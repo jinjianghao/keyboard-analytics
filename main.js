@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const { uIOhook } = require('uiohook-napi');
 const { handleKeyPress, getDailyStats, handleMouseEvent } = require('./index.js');
+const { spawn } = require('child_process'); // 新增
+let pyProc = null; // 新增
 
 const keyCodeToStringNormal = {
   29: "0",
@@ -232,7 +234,15 @@ function createWindow() {
 
 // 处理应用程序启动
 app.whenReady()
-  .then(createWindow)
+  .then(() => {
+    // // 启动 Python AI 服务
+    // pyProc = spawn('python3', ['ai/your_api_server.py'], {
+    //   cwd: __dirname,
+    //   stdio: 'ignore',
+    //   detached: true
+    // });
+    createWindow();
+  })
   .catch(error => {
     console.error('应用启动失败:', error);
   });
@@ -254,9 +264,10 @@ app.on('window-all-closed', () => {
 // 清理资源
 app.on('before-quit', () => {
   try {
+    if (pyProc) pyProc.kill(); // 新增
     uIOhook.stop();
   } catch (error) {
-    console.error('停止 uIOhook 失败:', error);
+    console.error('清理资源失败:', error);
   }
 });
 
