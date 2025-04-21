@@ -7,21 +7,27 @@ const DB_CONFIG = {
   tables: {
     normal_keys: `CREATE TABLE IF NOT EXISTS normal_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT NOT NULL UNIQUE,
+      key TEXT NOT NULL,
       count INTEGER DEFAULT 0,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      date TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(key, date)
     )`,
     shortcut_keys: `CREATE TABLE IF NOT EXISTS shortcut_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      combination TEXT NOT NULL UNIQUE,
+      combination TEXT NOT NULL,
       count INTEGER DEFAULT 0,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      date TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(combination, date)
     )`,
     mouse_events: `CREATE TABLE IF NOT EXISTS mouse_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      button TEXT NOT NULL UNIQUE,
+      button TEXT NOT NULL,
       count INTEGER DEFAULT 0,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      date TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(button, date)
     )`
   }
 };
@@ -123,6 +129,51 @@ class KeyboardStatsManager {
     }
   }
 
+  // 同步缓存到数据库
+  async syncCacheToDatabase(isShortcut) {
+    if (this.syncLock) {
+      console.log('已有同步任务在执行，跳过本次普通/快捷键同步');
+      return;
+    }
+    this.syncLock = true;
+    const cache = isShortcut ? this.shortcutKeyCache : this.normalKeyCache;
+    const tableName = isShortcut ? 'shortcut_keys' : 'normal_keys';
+    const keyColumn = isShortcut ? 'combination' : 'key';
+    const todayStr = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+
+    if (cache.size === 0) {
+      this.syncLock = false;
+      return;
+    }
+
+    await this.beginTransaction();
+    try {
+      for (const [key, count] of cache.entries()) {
+        await new Promise((resolve, reject) => {
+          const query = `INSERT INTO ${tableName} (${keyColumn}, count, date, timestamp)
+                         VALUES (?, ?, ?, datetime('now'))
+                         ON CONFLICT(${keyColumn}, date)
+                         DO UPDATE SET count = count + ?, timestamp = datetime('now')
+                         WHERE ${keyColumn} = ? AND date = ?`;
+          this.db.run(query, [key, count, todayStr, count, key, todayStr], (err) => {
+            if (err) {
+              console.error(`更新${tableName}失败:`, err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
+      }
+      cache.clear();
+      await this.commitTransaction();
+    } catch (err) {
+      await this.rollbackTransaction();
+    } finally {
+      this.syncLock = false;
+    }
+  }
+
   // 4. 新增 syncMouseCacheToDatabase
   async syncMouseCacheToDatabase() {
     if (this.syncLock) {
@@ -130,34 +181,34 @@ class KeyboardStatsManager {
       return;
     }
     this.syncLock = true;
-    const cache = this.mouseEventCache;
-    const tableName = 'mouse_events';
-    const keyColumn = 'button';
-
-    let transactionStarted = false;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (this.mouseEventCache.size === 0) {
+      this.syncLock = false;
+      return;
+    }
+    await this.beginTransaction();
     try {
-      console.log('准备开启事务...');
-      await this.beginTransaction();
-      transactionStarted = true;
-      console.log('事务已开启');
-      for (const [button, count] of cache.entries()) {
-        await this.updateKeyCount(tableName, keyColumn, button, count);
+      for (const [button, count] of this.mouseEventCache.entries()) {
+        await new Promise((resolve, reject) => {
+          const query = `INSERT INTO mouse_events (button, count, date, timestamp)
+                         VALUES (?, ?, ?, datetime('now'))
+                         ON CONFLICT(button, date)
+                         DO UPDATE SET count = count + ?, timestamp = datetime('now')
+                         WHERE button = ? AND date = ?`;
+          this.db.run(query, [button, count, todayStr, count, button, todayStr], (err) => {
+            if (err) {
+              console.error('更新mouse_events失败:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
       }
+      this.mouseEventCache.clear();
       await this.commitTransaction();
-      console.log('事务提交成功');
-      cache.clear();
-    } catch (error) {
-      console.error('syncMouseCacheToDatabase 出错:', error);
-      if (transactionStarted) {
-        try {
-          await this.rollbackTransaction();
-          console.log('事务已回滚');
-        } catch (rollbackError) {
-          if (rollbackError.code !== 'SQLITE_ERROR') {
-            throw rollbackError;
-          }
-        }
-      }
+    } catch (err) {
+      await this.rollbackTransaction();
     } finally {
       this.syncLock = false;
     }
@@ -171,70 +222,70 @@ class KeyboardStatsManager {
     return isShortcut;
   }
 
-  // 同步缓存到数据库
-  async syncCacheToDatabase(isShortcut) {
-    if (this.syncLock) {
-      console.log('已有同步任务在执行，跳过本次普通/快捷键同步');
-      return;
+  // 定时同步所有数据
+  syncData() {
+    console.log('执行定时同步检查...');
+    
+    if (this.normalKeyCache.size > 0) {
+      console.log(`发现 ${this.normalKeyCache.size} 个普通按键待同步`);
+      this.syncCacheToDatabase(false);
+    } else {
+      console.log('没有普通按键需要同步');
     }
-    this.syncLock = true;
-    const cache = isShortcut ? this.shortcutKeyCache : this.normalKeyCache;
-    const tableName = isShortcut ? 'shortcut_keys' : 'normal_keys';
-    const keyColumn = isShortcut ? 'combination' : 'key';
-  
-    let transactionStarted = false;
-    try {
-      console.log('准备开启事务...');
-      await this.beginTransaction();
-      transactionStarted = true;
-      console.log('事务已开启');
-  
-      for (const [key, count] of cache.entries()) {
-        await this.updateKeyCount(tableName, keyColumn, key, count);
-      }
-  
-      await this.commitTransaction();
-      console.log('事务提交成功');
-      cache.clear();
-    } catch (error) {
-      console.error('syncCacheToDatabase 出错:', error);
-      if (transactionStarted) {
-        try {
-          await this.rollbackTransaction();
-          console.log('事务已回滚');
-        } catch (rollbackError) {
-          if (rollbackError.code !== 'SQLITE_ERROR') {
-            throw rollbackError;
-          }
-        }
-      }
-    } finally {
-      this.syncLock = false;
+
+    if (this.shortcutKeyCache.size > 0) {
+      console.log(`发现 ${this.shortcutKeyCache.size} 个快捷键待同步`);
+      this.syncCacheToDatabase(true);
+    } else {
+      console.log('没有快捷键需要同步');
+    }
+
+    if (this.mouseEventCache.size > 0) {
+      console.log(`发现 ${this.mouseEventCache.size} 个鼠标事件待同步`);
+      this.syncMouseCacheToDatabase();
+    } else {
+      console.log('没有鼠标事件需要同步');
     }
   }
 
-  // 更新按键计数
-  async updateKeyCount(tableName, keyColumn, key, count) {
+  // 添加获取当天数据的方法
+  async getDailyStats() {
     return new Promise((resolve, reject) => {
       const query = `
-        INSERT INTO ${tableName} (${keyColumn}, count, timestamp)
-        VALUES (?, ?, datetime('now'))
-        ON CONFLICT(${keyColumn}) DO UPDATE SET 
-        count = count + ?,
-        timestamp = datetime('now')
-        WHERE ${keyColumn} = ?
+        SELECT n.key as key, n.count as count, 'normal' as type
+        FROM normal_keys n
+        WHERE n.date = DATE('now', 'localtime')
+        UNION ALL
+        SELECT s.combination as key, s.count as count, 'shortcut' as type
+        FROM shortcut_keys s
+        WHERE s.date = DATE('now', 'localtime')
+        UNION ALL
+        SELECT m.button as key, m.count as count, 'mouse' as type
+        FROM mouse_events m
+        WHERE m.date = DATE('now', 'localtime')
       `;
-
-      console.log(`执行SQL: ${query.replace(/\s+/g, ' ')}`);
-      console.log(`参数: [${key}, ${count}, ${count}, ${key}]`);
-
-      this.db.run(query, [key, count, count, key], (err) => {
+      this.db.all(query, [], (err, rows) => {
         if (err) {
-          console.error(`更新${tableName}失败:`, err);
+          console.error('获取当天数据失败:', err);
           reject(err);
         } else {
-          console.log(`成功更新 ${tableName}: ${key} -> ${count}`);
-          resolve();
+          const stats = {
+            keyPresses: {},
+            combinationPresses: {},
+            mousePresses: {},
+            totalPresses: 0
+          };
+          rows.forEach(row => {
+            if (row.type === 'normal') {
+              stats.keyPresses[row.key] = row.count;
+              stats.totalPresses += row.count;
+            } else if (row.type === 'shortcut') {
+              stats.combinationPresses[row.key] = row.count;
+            } else if (row.type === 'mouse') {
+              stats.mousePresses[row.key] = row.count;
+            }
+          });
+          resolve(stats);
         }
       });
     });
@@ -281,80 +332,6 @@ class KeyboardStatsManager {
         } else {
           console.log('事务回滚成功');
           resolve();
-        }
-      });
-    });
-  }
-
-  // 定时同步所有数据
-  syncData() {
-    console.log('执行定时同步检查...');
-    
-    if (this.normalKeyCache.size > 0) {
-      console.log(`发现 ${this.normalKeyCache.size} 个普通按键待同步`);
-      this.syncCacheToDatabase(false);
-    } else {
-      console.log('没有普通按键需要同步');
-    }
-
-    if (this.shortcutKeyCache.size > 0) {
-      console.log(`发现 ${this.shortcutKeyCache.size} 个快捷键待同步`);
-      this.syncCacheToDatabase(true);
-    } else {
-      console.log('没有快捷键需要同步');
-    }
-
-    if (this.mouseEventCache.size > 0) {
-      console.log(`发现 ${this.mouseEventCache.size} 个鼠标事件待同步`);
-      this.syncMouseCacheToDatabase();
-    } else {
-      console.log('没有鼠标事件需要同步');
-    }
-  }
-
-  // 添加获取当天数据的方法
-  async getDailyStats() {
-    return new Promise((resolve, reject) => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const query = `
-        SELECT 
-          n.key as key,
-          n.count as count,
-          'normal' as type
-        FROM normal_keys n
-        WHERE DATE(n.timestamp) = DATE('now', 'localtime')
-        UNION ALL
-        SELECT 
-          s.combination as key,
-          s.count as count,
-          'shortcut' as type
-        FROM shortcut_keys s
-        WHERE DATE(s.timestamp) = DATE('now', 'localtime')
-      `;
-
-      this.db.all(query, [], (err, rows) => {
-        if (err) {
-          console.error('获取当天数据失败:', err);
-          reject(err);
-        } else {
-          const stats = {
-            keyPresses: {},
-            combinationPresses: {},
-            totalPresses: 0
-          };
-
-          rows.forEach(row => {
-            if (row.type === 'normal') {
-              stats.keyPresses[row.key] = row.count;
-              stats.totalPresses += row.count;
-            } else {
-              stats.combinationPresses[row.key] = row.count;
-            }
-          });
-
-          resolve(stats);
         }
       });
     });
