@@ -223,15 +223,18 @@
       let rows = [];
       let columns = [];
       if (window.ipcRenderer) {
-        // Electron 环境下，调用主进程获取
-        try {
-          const dailyStats = await window.ipcRenderer.invoke('get-daily-stats');
-          if (dailyStats) {
-            sql = 'SELECT ... FROM ... WHERE date = 当前日期'; // 可根据后端AI需求调整
-            rows = [dailyStats];
-            columns = Object.keys(dailyStats);
-          }
-        } catch (e) { /* 忽略 */ }
+        let stats = null;
+        if (question.includes('昨天')) {
+          stats = await window.ipcRenderer.invoke('get-yesterday-stats');
+          sql = "SELECT * FROM normal_keys WHERE date = date('now', '-1 day', 'localtime')";
+        } else if (question.includes('今天') || question.includes('今日')) {
+          stats = await window.ipcRenderer.invoke('get-daily-stats');
+          sql = "SELECT * FROM normal_keys WHERE date = date('now', 'localtime')";
+        }
+        if (stats) {
+          rows = [stats];
+          columns = Object.keys(stats);
+        }
       }
       // 发送请求
       const res = await fetch('http://127.0.0.1:5001/ai/ask', {
