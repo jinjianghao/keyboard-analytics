@@ -113,7 +113,7 @@
     border-radius: 8px;
     border: 1px solid #e0e0e0;
     background: #fff;
-    box-shadow: 0 2px 8px #0001;
+    box-shadow: 0 2px 16px #0002;
     display: flex;
     flex-direction: column;
     font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
@@ -121,6 +121,93 @@
     right: 32px;
     bottom: 32px;
     z-index: 9999;
+    user-select: none;
+    transition: box-shadow 0.2s, opacity 0.2s;
+    left: unset;
+    top: unset;
+  }
+  #ai-chat-box.ai-collapsed {
+    width: 60px;
+    height: 60px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    overflow: visible;
+    background: #1677ff;
+    box-shadow: 0 2px 8px #0001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    left: unset;
+    top: unset;
+    right: 32px;
+    bottom: 32px;
+  }
+  #ai-chat-box .ai-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px 8px 16px;
+    border-bottom: 1px solid #ececec;
+    background: #f7f8fa;
+    cursor: move;
+    border-radius: 8px 8px 0 0;
+    font-weight: bold;
+    font-size: 16px;
+    user-select: none;
+  }
+  #ai-chat-box .ai-header .ai-title {
+    flex: 1;
+    color: #1677ff;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #ai-chat-box .ai-header .ai-btns {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ai-icon-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    transition: color 0.2s;
+  }
+  .ai-icon-btn:hover {
+    color: #1677ff;
+  }
+  #ai-chat-box.ai-collapsed .ai-header,
+  #ai-chat-box.ai-collapsed #ai-chat-history,
+  #ai-chat-box.ai-collapsed #ai-chat-input-row {
+    display: none !important;
+  }
+  #ai-chat-box.ai-collapsed .ai-fab {
+    display: flex !important;
+  }
+  .ai-fab {
+    display: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #1677ff;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px #0001;
+    margin: 6px;
+    cursor: pointer;
+  }
+  .ai-fab svg {
+    width: 28px;
+    height: 28px;
+    color: #fff;
   }
   #ai-chat-history {
     height: 320px;
@@ -195,6 +282,23 @@
   @keyframes ai-spin { 100% { transform: rotate(360deg); } }
   </style>
   <div id="ai-chat-box">
+    <div class="ai-header" id="ai-chat-header">
+      <span class="ai-title">AI助手</span>
+      <span class="ai-btns">
+        <button class="ai-icon-btn" id="ai-collapse-btn" title="收起">
+          <!-- 折叠SVG -->
+          <svg viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ai-icon-btn" id="ai-close-btn" title="关闭">
+          <!-- 关闭SVG -->
+          <svg viewBox="0 0 20 20" fill="none"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </span>
+    </div>
+    <div class="ai-fab" id="ai-fab" style="display:none">
+      <!-- 聊天气泡SVG -->
+      <svg viewBox="0 0 24 24"><path d="M4 20v-2a2 2 0 012-2h12a2 2 0 012 2v2M4 8V6a2 2 0 012-2h12a2 2 0 012 2v2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    </div>
     <div id="ai-chat-history"></div>
     <div id="ai-chat-input-row">
       <input id="ai-chat-input" type="text" placeholder="和AI聊点什么..." onkeydown="if(event.key==='Enter'){sendToAI()}" autocomplete="off" />
@@ -204,7 +308,85 @@
   <script>
   let aiChatHistory = [];
   let aiChatLoading = false;
+  // 拖动相关变量
+  let aiDragging = false, aiOffsetX = 0, aiOffsetY = 0;
+  let aiDragTarget = null;
+  const aiChatBox = document.getElementById('ai-chat-box');
+  const aiHeader = document.getElementById('ai-chat-header');
+  const aiCollapseBtn = document.getElementById('ai-collapse-btn');
+  const aiCloseBtn = document.getElementById('ai-close-btn');
+  const aiFab = document.getElementById('ai-fab');
 
+  // 拖动逻辑（展开时 header，收起时整个 chat-box 都能拖动）
+  function getBoxRect() {
+    return aiChatBox.getBoundingClientRect();
+  }
+  function setBoxPosition(x, y) {
+    // 限制不超出窗口
+    const boxW = aiChatBox.offsetWidth, boxH = aiChatBox.offsetHeight;
+    const maxX = window.innerWidth - boxW - 8;
+    const maxY = window.innerHeight - boxH - 8;
+    x = Math.max(8, Math.min(x, maxX));
+    y = Math.max(8, Math.min(y, maxY));
+    aiChatBox.style.left = x + 'px';
+    aiChatBox.style.top = y + 'px';
+    aiChatBox.style.right = '';
+    aiChatBox.style.bottom = '';
+  }
+  function dragStart(e) {
+    aiDragging = true;
+    aiDragTarget = e.target;
+    const rect = getBoxRect();
+    aiOffsetX = e.clientX - rect.left;
+    aiOffsetY = e.clientY - rect.top;
+    document.body.style.userSelect = 'none';
+  }
+  function dragMove(e) {
+    if (!aiDragging) return;
+    setBoxPosition(e.clientX - aiOffsetX, e.clientY - aiOffsetY);
+  }
+  function dragEnd() {
+    aiDragging = false;
+    aiDragTarget = null;
+    document.body.style.userSelect = '';
+  }
+  // 展开时 header 可拖动
+  aiHeader.addEventListener('mousedown', dragStart);
+  // 收起时整个 chat-box 可拖动
+  aiChatBox.addEventListener('mousedown', function(e) {
+    if (aiChatBox.classList.contains('ai-collapsed')) dragStart(e);
+  });
+  document.addEventListener('mousemove', dragMove);
+  document.addEventListener('mouseup', dragEnd);
+
+  // 收起/展开
+  aiCollapseBtn.onclick = function() {
+    aiChatBox.classList.add('ai-collapsed');
+    aiFab.style.display = 'flex';
+  };
+  aiFab.onclick = function() {
+    aiChatBox.classList.remove('ai-collapsed');
+    aiFab.style.display = 'none';
+  };
+  // 关闭
+  aiCloseBtn.onclick = function() {
+    aiChatBox.style.display = 'none';
+  };
+  // 保证窗口拖动后不会超出视窗
+  window.addEventListener('resize', function() {
+    if (!aiChatBox.style.left) return;
+    const rect = aiChatBox.getBoundingClientRect();
+    if (rect.right > window.innerWidth) aiChatBox.style.left = (window.innerWidth - rect.width - 10) + 'px';
+    if (rect.bottom > window.innerHeight) aiChatBox.style.top = (window.innerHeight - rect.height - 10) + 'px';
+  });
+  // 保证初始状态右下角
+  if (!aiChatBox.style.left && !aiChatBox.style.top) {
+    aiChatBox.style.left = '';
+    aiChatBox.style.top = '';
+    aiChatBox.style.right = '32px';
+    aiChatBox.style.bottom = '32px';
+  }
+  // ...原有 sendToAI、renderAIChat 逻辑保持不变...
   async function sendToAI() {
     if (aiChatLoading) return;
     const input = document.getElementById('ai-chat-input');
