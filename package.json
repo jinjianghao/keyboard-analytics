@@ -1,22 +1,55 @@
 {
   "name": "keyboard-stats",
-  "version": "1.0.0",
-  "description": "键盘使用情况统计工具",
-  "main": "main.js",
+  "version": "2.0.0",
+  "description": "键盘使用情况统计工具（Mastra 重构版）",
+  "main": "./out/main/index.cjs",
+  "type": "module",
   "scripts": {
-    "start": "electron .",
-    "debug": "electron --inspect .",
-    "debug-brk": "electron --inspect-brk .",
-    "dev": "electron . --debug"
+    "dev": "electron-vite dev",
+    "dev:mastra": "mastra dev",
+    "build": "npm run typecheck && electron-vite build && npm run build:mastra",
+    "build:mastra": "esbuild src/mastra/server.ts --bundle --platform=node --format=esm --packages=external --outfile=out/main/mastra-server.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "electron-vite preview",
+    "mastra:build": "mastra build",
+    "package": "npm run build && electron-builder --dir",
+    "rebuild:native": "electron-rebuild -f -w sqlite3,uiohook-napi"
   },
   "dependencies": {
+    "@ai-sdk/react": "^4.0.100",
+    "@mastra/ai-sdk": "^1.10.2",
+    "@mastra/core": "^1.66.0",
+    "@mastra/hono": "^1.7.8",
+    "ai": "^7.0.97",
+    "@hono/node-server": "^1.19.17",
     "chart.js": "^4.4.1",
+    "hono": "^4.13.7",
     "node-global-key-listener": "^0.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "sqlite3": "^5.1.7",
     "uiohook-napi": "^1.5.3",
-    "vue": "^3.4.15"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
-    "electron": "^28.2.0"
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/sqlite3": "^3.1.11",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^28.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "allowScripts": {
+    "electron@28.3.3": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "sqlite3@5.1.7": true,
+    "uiohook-napi@1.5.4": true
   }
 }
