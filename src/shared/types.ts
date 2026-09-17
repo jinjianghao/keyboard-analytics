@@ -1,11 +1,15 @@
 /**
  * 主进程 <-> 渲染进程 共享类型契约
  */
+import type { AiConfig, AiConfigStatus, SetAiConfigResult } from './ai-config.ts'
+
+/** 键盘事件负载 */
 export interface KeyboardEventPayload {
   type: 'keyboard'
   key: string
 }
 
+/** 鼠标事件负载 */
 export interface MouseEventPayload {
   type: 'mouse'
   name: 'Left' | 'Right' | 'Middle'
@@ -29,6 +33,10 @@ export interface KeyboardAnalyticsApi {
   onMouseEvent: (cb: (data: MouseEventPayload) => void) => () => void
   /** Mastra server 地址 */
   getMastraUrl: () => Promise<string>
+  /** 读取当前 AI 接入状态 */
+  getAiConfig: () => Promise<AiConfigStatus>
+  /** 保存 AI 接入配置（先测连再写盘），返回保存结果 */
+  setAiConfig: (cfg: AiConfig) => Promise<SetAiConfigResult>
 }
 
 export const IPC_CHANNELS = {
@@ -36,5 +44,7 @@ export const IPC_CHANNELS = {
   getYesterdayStats: 'stats:get-yesterday',
   keyEvent: 'event:key',
   mouseEvent: 'event:mouse',
-  getMastraUrl: 'mastra:get-url'
+  getMastraUrl: 'mastra:get-url',
+  getAiConfig: 'ai:get-config',
+  setAiConfig: 'ai:set-config'
 } as const

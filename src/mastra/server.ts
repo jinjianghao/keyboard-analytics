@@ -27,7 +27,7 @@ async function start(): Promise<void> {
   app.use('*', cors({ origin: '*', allowMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH', 'OPTIONS'], allowHeaders: ['*'] }))
   // Hono 只在路径存在 handler 时才执行 use 中间件；chatRoute 仅注册 POST，
   // 不会触发 cors 的 OPTIONS 预检逻辑，需显式注册 OPTIONS 路由以让预检返回 204。
-  app.options('*', c => c.text('No Content', 204))
+  app.options('*', c => c.body(null, 204))
   const adapter = new MastraServer({ app, mastra })
 
   await adapter.init()

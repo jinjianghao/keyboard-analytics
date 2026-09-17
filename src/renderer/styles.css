@@ -295,3 +295,156 @@ h1 {
 .chat-fab:hover {
   background: #3a8bff;
 }
+
+/* AI 未配置横幅引导 */
+.chat-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 10px 0 10px;
+  padding: 10px 12px;
+  background: #fff7e6;
+  border: 1px solid #ffe7ba;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #ad6800;
+}
+
+.chat-banner-icon {
+  font-size: 16px;
+}
+
+.chat-banner-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.chat-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-banner-btn {
+  border: none;
+  background: #fa8c16;
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-banner-btn:hover {
+  background: #d46b08;
+}
+
+.chat-banner-close {
+  border: none;
+  background: none;
+  color: #b7a57a;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.chat-banner-close:hover {
+  color: #ad6800;
+}
+
+/* 聊天头部操作区 */
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* AI 设置面板 */
+.settings-form {
+  padding: 14px;
+  background: #f9f9fb;
+}
+
+.settings-title {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  color: #333;
+}
+
+.settings-label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #555;
+}
+
+.settings-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.settings-input:focus {
+  border-color: #1677ff;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
+  margin: 0 0 12px 0;
+}
+
+.settings-hint code {
+  background: #eee;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.settings-save {
+  width: 100%;
+  padding: 9px 0;
+  margin-top: 4px;
+  border: none;
+  border-radius: 6px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-save:hover {
+  background: #3a8bff;
+}
+
+.settings-save:disabled {
+  background: #b2d2ff;
+  cursor: wait;
+}
+
+.settings-msg {
+  font-size: 12px;
+  margin: 8px 0 0 0;
+}
+
+.settings-msg-ok {
+  color: #389e0d;
+}
+
+.settings-msg-err {
+  color: #cf1322;
+}
+
+.settings-path {
+  font-size: 11px;
+  color: #bbb;
+  word-break: break-all;
+  margin: 10px 0 0 0;
+}

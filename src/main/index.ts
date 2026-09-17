@@ -16,12 +16,16 @@ import { fileURLToPath } from 'node:url'
 import { createDb, getDailyStats, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
 import { IPC_CHANNELS, type DailyStats } from '../shared/types.ts'
 import { EventCollector } from './event-collector.ts'
+import { aiConfigStatus, loadAiConfig, saveAiConfig, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // 生产环境数据库写入 userData；dev 保持项目根，兼容旧数据
 if (app.isPackaged) {
   process.env.KEYBOARD_DB_PATH ??= path.join(app.getPath('userData'), 'keyboard_stats.db')
+  process.env.KEYBOARD_CONFIG_PATH ??= path.join(app.getPath('userData'), 'ai-config.json')
+} else {
+  process.env.KEYBOARD_CONFIG_PATH ??= path.join(app.getAppPath(), 'ai-config.json')
 }
 
 if (process.platform === 'darwin') {
@@ -125,6 +129,53 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle(IPC_CHANNELS.getMastraUrl, () => mastraUrl)
+  ipcMain.handle(IPC_CHANNELS.getAiConfig, () => aiConfigStatus(loadAiConfig()))
+  ipcMain.handle(IPC_CHANNELS.setAiConfig, async (_e, cfg: AiConfig): Promise<SetAiConfigResult> => {
+    const check = validateAiConfig(cfg)
+    if (!check.ok) {
+      return { ok: false, status: aiConfigStatus(cfg), error: check.reason }
+    }
+    try {
+      await testAiConnection(cfg)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, status: aiConfigStatus(cfg), error: `连接失败：${msg}` }
+    }
+    saveAiConfig(cfg)
+    return { ok: true, status: aiConfigStatus(loadAiConfig()) }
+  })
+}
+
+/** 向 OpenAI 兼容端点发一个最小 chat 请求，验证 key/地址可用 */
+async function testAiConnection(cfg: AiConfig, timeoutMs = 15000): Promise<void> {
+  const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions'
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1
+      }),
+      signal: controller.signal
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const detail = text ? `（HTTP ${res.status} ${text.slice(0, 160)}）` : `（HTTP ${res.status}）`
+      throw new Error(`服务返回错误${detail}`)
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw new Error('连接超时')
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function createWindow(): void {

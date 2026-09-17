@@ -9,6 +9,7 @@ import {
   type KeyboardEventPayload,
   type MouseEventPayload
 } from '../shared/types.ts'
+import type { AiConfig } from '../shared/ai-config.ts'
 
 const api: KeyboardAnalyticsApi = {
   getDailyStats: () => ipcRenderer.invoke(IPC_CHANNELS.getDailyStats),
@@ -23,7 +24,9 @@ const api: KeyboardAnalyticsApi = {
     ipcRenderer.on(IPC_CHANNELS.mouseEvent, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.mouseEvent, listener)
   },
-  getMastraUrl: () => ipcRenderer.invoke(IPC_CHANNELS.getMastraUrl)
+  getMastraUrl: () => ipcRenderer.invoke(IPC_CHANNELS.getMastraUrl),
+  getAiConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getAiConfig),
+  setAiConfig: (cfg: AiConfig) => ipcRenderer.invoke(IPC_CHANNELS.setAiConfig, cfg)
 }
 
 contextBridge.exposeInMainWorld('keyboardApi', api)
