@@ -66,10 +66,17 @@ export function resolveModelFromEnv(): ModelConfig {
   }
 }
 
+/** 模型调用重试次数（应对 429/5xx 限速抖动），可通过环境变量 MASTRA_MAX_RETRIES 调整 */
+function modelRetries(): number {
+  const raw = Number(process.env.MASTRA_MAX_RETRIES)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 5
+}
+
 export const analyticsAgent = new Agent({
   id: 'analytics-agent',
   name: '键盘数据分析助手',
   description: '分析键盘使用统计数据，回答关于按键频率、快捷键组合、鼠标使用等统计问题。',
+  maxRetries: modelRetries(),
   instructions: `
 你是一个键盘使用数据分析助手。数据库包含键盘按键、组合键、鼠标点击的统计信息。
 

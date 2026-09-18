@@ -59,8 +59,22 @@ npm run dev
 ### Build for distribution
 
 ```bash
-npm run dist        # produces macOS .dmg + .zip in dist/
+npm run dist          # macOS .dmg + .zip (x64, output to release/)
+npm run dist:win      # Windows Setup .exe (NSIS)
+npm run dist:all      # macOS + Windows + Linux
 ```
+
+### Platform support
+
+| Platform | Arch | Artifacts |
+|----------|------|-----------|
+| macOS Intel | x64 ✅ | `.dmg` / `.zip` |
+| macOS Apple Silicon | arm64 ✅ | `.dmg` / `.zip` (build on Apple Silicon or CI) |
+| Windows | x64 ✅ | `Setup .exe` |
+
+Cross-platform key detection uses each platform's standard key names (A / SPACE / LEFT SHIFT / NUMPAD 1 …) mapped to Chinese labels, so the same stats logic works everywhere. The keyboard & mouse listener binaries for all platforms are bundled.
+
+To publish: tag a release (`git tag vX.Y.Z && git push origin vX.Y.Z`) — `.github/workflows/build-release.yml` builds all three platforms on GitHub Actions and creates a Release automatically (great for hands-off batch packaging).
 
 ## Setting Up the AI Assistant
 

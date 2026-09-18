@@ -14,12 +14,16 @@
     "mastra:build": "mastra build",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
     "dist:all": "npm run build && electron-builder --mac --win --linux",
     "rebuild:native": "electron-rebuild -f -w sqlite3,uiohook-napi"
   },
   "build": {
     "appId": "com.keyboard.stats",
     "productName": "键盘统计分析",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "out/**/*",
       "package.json"
@@ -36,6 +40,15 @@
         "zip"
       ],
       "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     },
     "dmg": {
       "title": "键盘统计分析"

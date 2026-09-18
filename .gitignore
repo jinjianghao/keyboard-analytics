@@ -2,6 +2,7 @@ node_modules/
 .env
 out/
 dist/
+release/
 *.log
 keyboard_stats.db*
 ai-config.json

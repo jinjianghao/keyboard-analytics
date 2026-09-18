@@ -38,6 +38,8 @@ export default function ChatPanel(): React.JSX.Element {
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [bannerVisible, setBannerVisible] = useState(true)
+  // 对话错误提示（限速/网络抖动时展示，支持重发）
+  const [chatError, setChatError] = useState('')
 
   const refreshStatus = (): void => {
     void window.keyboardApi?.getAiConfig().then(s => setStatus(s))
@@ -61,7 +63,8 @@ export default function ChatPanel(): React.JSX.Element {
   )
 
   const { messages, sendMessage, status: chatStatus } = useChat({
-    transport
+    transport,
+    onError: err => setChatError(err?.message || '对话失败，请重试')
   })
 
   const textOf = (m: (typeof messages)[number]): string =>
@@ -77,6 +80,7 @@ export default function ChatPanel(): React.JSX.Element {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault()
     if (!input.trim() || chatStatus !== 'ready' || !status.configured) return
+    setChatError('')
     void sendMessage({ text: input.trim() })
     setInput('')
   }
@@ -264,6 +268,25 @@ export default function ChatPanel(): React.JSX.Element {
               <div className="msg msg-ai">
                 <span className="bubble bubble-ai">
                   <span className="loading" /> AI 正在思考...
+                </span>
+              </div>
+            )}
+            {chatError && (
+              <div className="msg msg-ai">
+                <span className="bubble bubble-ai chat-error-bubble">
+                  <span>⚠️ {chatError}</span>
+                  <button
+                    className="chat-retry-btn"
+                    onClick={() => {
+                      const lastUser = [...messages].reverse().find(m => m.role === 'user')
+                      if (lastUser) {
+                        setChatError('')
+                        void sendMessage({ text: textOf(lastUser) })
+                      }
+                    }}
+                  >
+                    重试
+                  </button>
                 </span>
               </div>
             )}

@@ -17,6 +17,9 @@ import { createDb, getDailyStats, todayLocal, yesterdayLocal } from '../shared/s
 import { IPC_CHANNELS, type DailyStats } from '../shared/types.ts'
 import { EventCollector } from './event-collector.ts'
 import { aiConfigStatus, loadAiConfig, saveAiConfig, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
+// 按键识别：跨平台标准名 -> 中文显示（macOS Intel/AppleSilicon / Windows / Linux 通用）
+// 不再依赖按平台硬编码的 vKey 映射表（macOS kVK 与 Windows VK 数值不一致）。
+import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -46,33 +49,6 @@ function dbPathForChild(): string {
   if (app.isPackaged) return path.join(app.getPath('userData'), 'keyboard_stats.db')
   // dev：out/main/../.. = 项目根
   return path.resolve(__dirname, '../../keyboard_stats.db')
-}
-
-// 按键码 -> 中文显示名（普通键）
-const KEY_NAME_NORMAL: Record<number, string> = {
-  29: '0', 18: '1', 19: '2', 20: '3', 21: '4', 23: '5', 22: '6', 26: '7', 28: '8', 25: '9',
-  0: 'A', 11: 'B', 8: 'C', 2: 'D', 14: 'E', 3: 'F', 5: 'G', 4: 'H', 34: 'I', 38: 'J',
-  40: 'K', 37: 'L', 46: 'M', 45: 'N', 31: 'O', 35: 'P', 12: 'Q', 15: 'R', 1: 'S', 17: 'T',
-  32: 'U', 9: 'V', 13: 'W', 7: 'X', 16: 'Y', 6: 'Z', 10: '§', 50: '`', 27: '-', 24: '=',
-  33: '[', 30: ']', 41: ';', 39: "'", 43: ',', 47: '.', 44: '/', 42: '\\',
-  82: '小键盘0', 83: '小键盘1', 84: '小键盘2', 85: '小键盘3', 86: '小键盘4',
-  87: '小键盘5', 88: '小键盘6', 89: '小键盘7', 91: '小键盘8', 92: '小键盘9',
-  65: '小键盘.', 67: '小键盘*', 69: '小键盘+', 75: '小键盘/', 78: '小键盘-',
-  81: '小键盘=', 71: '小键盘清除', 76: '小键盘回车',
-  49: '空格', 36: '回车', 48: 'Tab', 51: '删除', 117: '向前删除', 52: '换行',
-  53: 'Esc',
-  122: 'F1', 120: 'F2', 99: 'F3', 118: 'F4', 96: 'F5', 97: 'F6', 98: 'F7', 100: 'F8',
-  101: 'F9', 109: 'F10', 103: 'F11', 111: 'F12', 105: 'F13', 107: 'F14', 113: 'F15',
-  106: 'F16', 64: 'F17', 79: 'F18', 80: 'F19', 90: 'F20',
-  72: '音量+', 73: '音量-', 74: '静音', 114: '帮助/插入', 115: 'Home', 119: 'End',
-  116: 'PageUp', 121: 'PageDown', 123: '←', 124: '→', 125: '↓', 126: '↑',
-  145: '亮度-', 144: '亮度+', 130: '仪表盘', 131: '启动台'
-}
-
-// 修饰键码 -> 中文名
-const KEY_NAME_MODIFIER: Record<number, string> = {
-  54: '右Command', 55: 'Command', 56: 'Shift', 57: 'CapsLock', 58: 'Option',
-  59: 'Control', 60: '右Shift', 61: '右Option', 62: '右Control', 63: 'Fn'
 }
 
 const collector = new EventCollector()
@@ -148,8 +124,35 @@ function registerIpc(): void {
   })
 }
 
-/** 向 OpenAI 兼容端点发一个最小 chat 请求，验证 key/地址可用 */
-async function testAiConnection(cfg: AiConfig, timeoutMs = 15000): Promise<void> {
+/** 向 OpenAI 兼容端点发一个最小 chat 请求，验证 key/地址可用（带指数退避重试） */
+async function testAiConnection(cfg: AiConfig, timeoutMs = 15000, maxAttempts = 3): Promise<void> {
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await testAiConnectionOnce(cfg, timeoutMs)
+      return
+    } catch (err) {
+      lastErr = err
+      // 只有可重试错误才指数退避：网络/超时/5xx；4xx（如 key 错）直接失败
+      const retryable = isRetryableTestError(err)
+      if (!retryable || attempt === maxAttempts) break
+      const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  throw lastErr
+}
+
+function isRetryableTestError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message
+  if (err.name === 'AbortError') return true
+  // HTTP 5xx（服务端过载）可重试；4xx 是配置错误不重试
+  if (/HTTP (5\d{2}|429)/.test(msg)) return true
+  return /fetch failed|ECONNREFUSED|ENOTFOUND|socket hang up/.test(msg)
+}
+
+async function testAiConnectionOnce(cfg: AiConfig, timeoutMs: number): Promise<void> {
   const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions'
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -205,10 +208,12 @@ function createWindow(): void {
       if (e.name && e.name.toLowerCase().includes('mouse')) return
       if (e.state === 'DOWN') return
       if (!down) return
-      const keyName = KEY_NAME_NORMAL[e.vKey] ?? KEY_NAME_MODIFIER[e.vKey] ?? e.name
-      if (!keyName) return
+      // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
+      const std = e.name ?? ''
+      if (!std) return
+      const keyName = keyDisplayName(std)
       mainWindow.webContents.send(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
-      collector.handleKeyPress(keyName)
+      collector.handleKeyPress(std)
     })
   } catch (e) {
     console.error('键盘监听初始化失败:', e)

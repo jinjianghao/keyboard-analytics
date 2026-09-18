@@ -59,8 +59,22 @@ npm run dev
 ### 打包分发
 
 ```bash
-npm run dist        # 生成 macOS .dmg + .zip（输出到 dist/）
+npm run dist          # macOS .dmg + .zip（x64，输出到 release/）
+npm run dist:win      # Windows Setup .exe（NSIS）
+npm run dist:all      # macOS + Windows + Linux
 ```
+
+### 平台支持
+
+| 平台 | 架构 | 产物 |
+|------|------|------|
+| macOS Intel | x64 ✅ | `.dmg` / `.zip` |
+| macOS Apple Silicon | arm64 ✅ | `.dmg` / `.zip`（在 Apple Silicon 机器或 CI 构建） |
+| Windows | x64 ✅ | `Setup .exe` |
+
+跨平台按键识别统一使用各平台标准键名（A/SPACE/LEFT SHIFT/NUMPAD 1…）并映射为中文，同一份统计逻辑三平台通用；键盘与鼠标监听驱动（`node-global-key-listener` / `uiohook-napi`）已内置各平台二进制。
+
+发布到 GitHub：打 tag 即触发 `.github/workflows/build-release.yml` 自动在 macOS/Windows 三平台构建并创建 Release（适合无人值守批量出包）。
 
 ## AI 助手配置
 

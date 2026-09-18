@@ -8,13 +8,7 @@
  */
 import type sqlite3 from 'sqlite3'
 import { createDb, todayLocal } from '../shared/stats-repository.ts'
-
-const SPECIAL_KEYS: Record<string, true> = {
-  Ctrl: true,
-  Shift: true,
-  Alt: true,
-  Command: true
-}
+import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
 
 const CONSTANTS = {
   NORMAL_CACHE_THRESHOLD: 5,
@@ -42,15 +36,18 @@ export class EventCollector {
     this.timer.unref()
   }
 
-  isShortcutKey(keyName: string): boolean {
-    return keyName.includes('+') || SPECIAL_KEYS[keyName] === true
+  /** 标准名判断是否为修饰/快捷键类按键 */
+  isShortcutKey(stdName: string): boolean {
+    return isShortcutLike(stdName)
   }
 
-  handleKeyPress(keyName: string): void {
-    const isShortcut = this.isShortcutKey(keyName)
+  handleKeyPress(stdName: string): void {
+    const isShortcut = this.isShortcutKey(stdName)
     const cache = isShortcut ? this.shortcutCache : this.normalCache
     const threshold = isShortcut ? CONSTANTS.SHORTCUT_CACHE_THRESHOLD : CONSTANTS.NORMAL_CACHE_THRESHOLD
-    cache.set(keyName, (cache.get(keyName) ?? 0) + 1)
+    // 入库与面板展示统一用中文名，避免标准名/中文名两套值并存
+    const stored = keyDisplayName(stdName)
+    cache.set(stored, (cache.get(stored) ?? 0) + 1)
     if (cache.size >= threshold) void this.sync(isShortcut)
   }
 
