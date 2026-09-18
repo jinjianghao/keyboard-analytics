@@ -46,5 +46,6 @@ export const IPC_CHANNELS = {
   mouseEvent: 'event:mouse',
   getMastraUrl: 'mastra:get-url',
   getAiConfig: 'ai:get-config',
-  setAiConfig: 'ai:set-config'
+  setAiConfig: 'ai:set-config',
+  accessibilityDenied: 'event:accessibility-denied'
 } as const

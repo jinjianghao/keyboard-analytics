@@ -1,6 +1,6 @@
 {
   "name": "keyboard-stats",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "description": "键盘使用情况统计工具（Mastra 重构版）",
   "main": "./out/main/index.cjs",
   "type": "module",

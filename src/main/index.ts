@@ -7,7 +7,7 @@
  * - 处理 IPC：daily/yesterday 统计、Mastra server 地址
  * - 启动/停止 Mastra 独立 server 子进程（生命周期与应用绑定）
  */
-import { app, BrowserWindow, Menu, ipcMain } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain, systemPreferences } from 'electron'
 import { GlobalKeyboardListener } from 'node-global-key-listener'
 import { uIOhook } from 'uiohook-napi'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -200,6 +200,20 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+}
+
+/** 向所有存活窗口广播事件（监听不受单个窗口生命周期影响） */
+function broadcast(channel: string, payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload)
+  }
+}
+
+/** 全局输入监听（只初始化一次，避免 uiohook/键盘监听被重复 start 引起原生崩溃） */
+let listenersReady = false
+function initInputListeners(): void {
+  if (listenersReady) return
+  listenersReady = true
 
   // 键盘监听
   try {
@@ -212,7 +226,7 @@ function createWindow(): void {
       const std = e.name ?? ''
       if (!std) return
       const keyName = keyDisplayName(std)
-      mainWindow.webContents.send(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
+      broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
       collector.handleKeyPress(std)
     })
   } catch (e) {
@@ -221,17 +235,29 @@ function createWindow(): void {
 
   // 鼠标监听
   try {
-    uIOhook.on('mousedown', e => {
-      const buttonName = e.button === 1 ? 'Left' : e.button === 2 ? 'Right' : e.button === 3 ? 'Middle' : null
-      if (!buttonName) return
-      collector.handleMouseEvent(buttonName)
-      mainWindow.webContents.send(IPC_CHANNELS.mouseEvent, {
-        type: 'mouse',
-        name: buttonName,
-        timestamp: Date.now()
+    // 关键：未授权辅助功能时，uiohook 的 hook_run 会返回 AXAPI_DISABLED，
+    // 进而触发原生 abort() 崩溃（见 uiohook_worker_start 的错误处理）。
+    // 必须先检测权限，未授权则跳过鼠标监听并提示用户，而不是硬启动。
+    const trusted =
+      process.platform === 'darwin'
+        ? systemPreferences.isTrustedAccessibilityClient(false)
+        : true
+    if (!trusted) {
+      broadcast(IPC_CHANNELS.accessibilityDenied, { platform: process.platform })
+      console.warn('[input] 辅助功能未授权，跳过鼠标监听（避免 uiohook 原生崩溃）')
+    } else {
+      uIOhook.on('mousedown', e => {
+        const buttonName = e.button === 1 ? 'Left' : e.button === 2 ? 'Right' : e.button === 3 ? 'Middle' : null
+        if (!buttonName) return
+        collector.handleMouseEvent(buttonName)
+        broadcast(IPC_CHANNELS.mouseEvent, {
+          type: 'mouse',
+          name: buttonName,
+          timestamp: Date.now()
+        })
       })
-    })
-    uIOhook.start()
+      uIOhook.start()
+    }
   } catch (e) {
     console.error('鼠标监听初始化失败:', e)
   }
@@ -241,6 +267,7 @@ app.whenReady().then(() => {
   registerIpc()
   startMastraServer()
   Menu.setApplicationMenu(null)
+  initInputListeners()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
