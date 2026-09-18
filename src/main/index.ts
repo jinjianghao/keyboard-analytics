@@ -35,7 +35,7 @@ if (process.platform === 'darwin') {
 /** 取 mastra server 独立进程的入口（构建后 / 开发时不同路径） */
 function mastraServerEntry(): string {
   if (process.env.MASTRA_SERVER_ENTRY) return process.env.MASTRA_SERVER_ENTRY
-  // 开发：直接跑 TS 源码（Node 22.18+ 支持 .ts）；生产：server.ts 被 esbuild 打进 out/main/mastra-server.mjs
+  // dev：直接跑 TS 源码（内置 Node ≥22.18 原生支持 .ts）；prod：esbuild 产物 out/main/mastra-server.mjs
   if (!app.isPackaged) return path.resolve(app.getAppPath(), 'src/mastra/server.ts')
   return path.resolve(__dirname, 'mastra-server.mjs')
 }
@@ -83,11 +83,13 @@ function startMastraServer(): void {
   if (process.env.DISABLE_MASTRA_SERVER === '1') return
   try {
     const entry = mastraServerEntry()
-    // @mastra 依赖 lru-cache 的 tracingChannel（Node 18.17+）及 ESM，Electron 28 内置 node 18 不满足，
-    // 因此 dev/prod 统一用系统 node 运行：dev 跑 TS 源码（Node 22.18+ 支持 .ts），prod 跑打包产物。
-    const child = spawn('node', [entry], {
+    // Electron ≥37 内置 Node 22（含 tracingChannel / ESM），满足 @mastra 全套依赖。
+    // 用 Electron 自身以 Node 模式运行子进程，发布后用户无需安装 Node。
+    // dev：仍跑 TS 源码（内置 node 22.18+ 支持 .ts）；prod：跑 esbuild 打包产物。
+    const child = spawn(process.execPath, [entry], {
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
         PORT: String(process.env.MASTRA_PORT ?? 4111),
         KEYBOARD_DB_PATH: dbPathForChild()
       },
@@ -97,7 +99,7 @@ function startMastraServer(): void {
     child.stdout?.on('data', d => console.log(`[mastra] ${String(d).trimEnd()}`))
     child.stderr?.on('data', d => console.error(`[mastra] ${String(d).trimEnd()}`))
     child.on('exit', code => console.log(`[mastra] server exited code=${code}`))
-    child.on('error', err => console.error('[mastra] 启动失败（请确认已安装 Node ≥22.18）:', err))
+    child.on('error', err => console.error('[mastra] 启动失败:', err))
   } catch (e) {
     console.error('[mastra] 启动失败:', e)
     mastraServer = null

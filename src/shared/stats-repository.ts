@@ -53,10 +53,44 @@ function configure(db: sqlite3.Database): void {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;')
 }
 
+/** 建表语句（幂等，与旧 createDatabase.js 保持一致） */
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS normal_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    count INTEGER DEFAULT 0,
+    date TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(key, date)
+  );
+  CREATE TABLE IF NOT EXISTS shortcut_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    combination TEXT NOT NULL,
+    count INTEGER DEFAULT 0,
+    date TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(combination, date)
+  );
+  CREATE TABLE IF NOT EXISTS mouse_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    button TEXT NOT NULL,
+    count INTEGER DEFAULT 0,
+    date TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(button, date)
+  );
+`
+
 export function createDb(): sqlite3.Database {
   const db = new sqlite3.Database(getDbPath())
   configure(db)
+  ensureSchema(db)
   return db
+}
+
+/** 初始化（或补齐）表结构；新库首次使用必须调用，否则查询报 no such table */
+function ensureSchema(db: sqlite3.Database): void {
+  db.exec(SCHEMA_SQL)
 }
 
 export function closeDb(db: sqlite3.Database): void {

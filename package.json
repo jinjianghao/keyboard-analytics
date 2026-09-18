@@ -13,15 +13,42 @@
     "start": "electron-vite preview",
     "mastra:build": "mastra build",
     "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --mac",
+    "dist:all": "npm run build && electron-builder --mac --win --linux",
     "rebuild:native": "electron-rebuild -f -w sqlite3,uiohook-napi"
+  },
+  "build": {
+    "appId": "com.keyboard.stats",
+    "productName": "键盘统计分析",
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/sqlite3/**/*",
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/node-global-key-listener/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null
+    },
+    "dmg": {
+      "title": "键盘统计分析"
+    },
+    "npmRebuild": true
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.100",
+    "@hono/node-server": "^1.19.17",
     "@mastra/ai-sdk": "^1.10.2",
     "@mastra/core": "^1.66.0",
     "@mastra/hono": "^1.7.8",
     "ai": "^7.0.97",
-    "@hono/node-server": "^1.19.17",
     "chart.js": "^4.4.1",
     "hono": "^4.13.7",
     "node-global-key-listener": "^0.3.0",
@@ -37,19 +64,19 @@
     "@types/react-dom": "^19.2.0",
     "@types/sqlite3": "^3.1.11",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^28.2.0",
+    "electron": "^37.10.3",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6"
   },
   "allowScripts": {
-    "electron@28.3.3": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "fsevents@2.3.3": true,
     "sqlite3@5.1.7": true,
-    "uiohook-napi@1.5.4": true
+    "uiohook-napi@1.5.4": true,
+    "electron@37.10.3": true
   }
 }
