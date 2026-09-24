@@ -10,6 +10,7 @@ import { cors } from 'hono/cors'
 import { serve, type ServerType } from '@hono/node-server'
 import { mastra } from './index.ts'
 import { MastraServer } from '@mastra/hono'
+import { closeSharedQueryDb } from '../shared/stats-repository.ts'
 
 // 加载项目根 .env（Node 20.12+ 支持；master server 由主进程 spawn，需自加载）
 try {
@@ -36,6 +37,7 @@ async function start(): Promise<void> {
   let server: ServerType | undefined
   const shutdown = (signal: string): void => {
     console.log(`[mastra] received ${signal}, shutting down`)
+    closeSharedQueryDb()
     server?.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 3000).unref()
   }
@@ -44,7 +46,13 @@ async function start(): Promise<void> {
 
   server = serve({ fetch: app.fetch, port: PORT })
   console.log(`[mastra] server listening on http://127.0.0.1:${PORT}`)
-  console.log(`[mastra] agent ready: analytics-agent (model: ${JSON.stringify(mastra.getAgentById('analytics-agent').getModel())})`)
+  // AI 未配置时 getModel() 会抛错——这只是诊断日志，绝不能让整个 server 进程退出：
+  // server 存活 = 其余功能正常，聊天在用户于设置面板配置 AI 后自然可用。
+  try {
+    console.log(`[mastra] agent ready: analytics-agent (model: ${JSON.stringify(mastra.getAgentById('analytics-agent').getModel())})`)
+  } catch (e) {
+    console.warn(`[mastra] AI 尚未配置，聊天功能将在设置面板完成配置后可用：${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 void start().catch(err => {

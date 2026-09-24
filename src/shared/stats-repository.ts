@@ -88,6 +88,28 @@ export function createDb(): sqlite3.Database {
   return db
 }
 
+/**
+ * 进程内共享的只读查询连接（同一进程复用，避免每次查询开关 SQLite 连接）。
+ * 与 EventCollector 的写连接分离：采集写入走独立连接，查询共享这一个，降低连接抖动。
+ * WAL 仅在此连接首次创建时设置一次，不再每次查询重复拿锁写盘。
+ */
+let sharedQueryDb: sqlite3.Database | null = null
+export function getSharedQueryDb(): sqlite3.Database {
+  if (!sharedQueryDb) {
+    sharedQueryDb = new sqlite3.Database(getDbPath())
+    configure(sharedQueryDb)
+    ensureSchema(sharedQueryDb)
+  }
+  return sharedQueryDb
+}
+
+export function closeSharedQueryDb(): void {
+  if (sharedQueryDb) {
+    sharedQueryDb.close()
+    sharedQueryDb = null
+  }
+}
+
 /** 初始化（或补齐）表结构；新库首次使用必须调用，否则查询报 no such table */
 function ensureSchema(db: sqlite3.Database): void {
   db.exec(SCHEMA_SQL)

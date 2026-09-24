@@ -1,6 +1,6 @@
 {
   "name": "keyboard-stats",
-  "version": "2.1.1",
+  "version": "2.2.1",
   "description": "键盘使用情况统计工具（Mastra 重构版）",
   "main": "./out/main/index.cjs",
   "type": "module",
@@ -62,7 +62,6 @@
     "@mastra/core": "^1.66.0",
     "@mastra/hono": "^1.7.8",
     "ai": "^7.0.97",
-    "chart.js": "^4.4.1",
     "hono": "^4.13.7",
     "node-global-key-listener": "^0.3.0",
     "react": "^19.3.0",

@@ -2,12 +2,12 @@
  * SQLite 查询工具——供 Mastra agent 使用。
  *
  * 注意：Mastra server 运行在独立的 Node 进程，与 Electron 主进程共享同一个
- * SQLite 文件（WAL 模式支持多进程并发读写）。每个工具调用独立打开连接，
- * 用完即关，避免跨进程连接句柄泄漏。
+ * SQLite 文件（WAL 模式支持多进程并发读写）。进程内复用共享连接，避免每个
+ * 工具调用都开关连接（连接抖动）；进程退出时由 server 统一 close。
  */
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { createDb, closeDb, getSchema, query, getDailyStats } from '../../shared/stats-repository.ts'
+import { getSharedQueryDb, getSchema, query, getDailyStats } from '../../shared/stats-repository.ts'
 
 /**
  * 只读 SQL 执行工具。
@@ -33,13 +33,8 @@ export const executeQueryTool = createTool({
     if (blocked) {
       throw new Error('仅允许只读 SELECT 查询')
     }
-    const db = createDb()
-    try {
-      const { rows, columns } = await query(db, sql)
-      return { rows, columns, rowCount: rows.length }
-    } finally {
-      closeDb(db)
-    }
+    const { rows, columns } = await query(getSharedQueryDb(), sql)
+    return { rows, columns, rowCount: rows.length }
   }
 })
 
@@ -57,13 +52,8 @@ export const getSchemaTool = createTool({
     )
   }),
   execute: async () => {
-    const db = createDb()
-    try {
-      const schema = await getSchema(db)
-      return { schema }
-    } finally {
-      closeDb(db)
-    }
+    const schema = await getSchema(getSharedQueryDb())
+    return { schema }
   }
 })
 
@@ -81,11 +71,6 @@ export const getDailyStatsTool = createTool({
     totalPresses: z.number()
   }),
   execute: async ({ date }) => {
-    const db = createDb()
-    try {
-      return await getDailyStats(db, date)
-    } finally {
-      closeDb(db)
-    }
+    return await getDailyStats(getSharedQueryDb(), date)
   }
 })

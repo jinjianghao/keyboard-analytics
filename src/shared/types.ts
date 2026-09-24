@@ -33,6 +33,8 @@ export interface KeyboardAnalyticsApi {
   onMouseEvent: (cb: (data: MouseEventPayload) => void) => () => void
   /** Mastra server 地址 */
   getMastraUrl: () => Promise<string>
+  /** 懒启动 Mastra server（仅当已配置 AI 时有效） */
+  ensureMastraStarted: () => Promise<void>
   /** 读取当前 AI 接入状态 */
   getAiConfig: () => Promise<AiConfigStatus>
   /** 保存 AI 接入配置（先测连再写盘），返回保存结果 */
@@ -45,6 +47,7 @@ export const IPC_CHANNELS = {
   keyEvent: 'event:key',
   mouseEvent: 'event:mouse',
   getMastraUrl: 'mastra:get-url',
+  mastraEnsureStarted: 'mastra:ensure-started',
   getAiConfig: 'ai:get-config',
   setAiConfig: 'ai:set-config',
   accessibilityDenied: 'event:accessibility-denied'

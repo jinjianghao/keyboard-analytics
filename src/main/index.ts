@@ -13,10 +13,10 @@ import { uIOhook } from 'uiohook-napi'
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createDb, getDailyStats, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
-import { IPC_CHANNELS, type DailyStats } from '../shared/types.ts'
+import { getDailyStats, getSharedQueryDb, closeSharedQueryDb, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
 import { EventCollector } from './event-collector.ts'
 import { aiConfigStatus, loadAiConfig, saveAiConfig, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
+import { IPC_CHANNELS, type DailyStats } from '../shared/types.ts'
 // 按键识别：跨平台标准名 -> 中文显示（macOS Intel/AppleSilicon / Windows / Linux 通用）
 // 不再依赖按平台硬编码的 vKey 映射表（macOS kVK 与 Windows VK 数值不一致）。
 import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
@@ -54,8 +54,19 @@ function dbPathForChild(): string {
 const collector = new EventCollector()
 let mastraServer: ChildProcess | null = null
 const mastraUrl = `http://127.0.0.1:${process.env.MASTRA_PORT ?? 4111}`
+let mastraStarted = false
+
+/** 懒加载：仅当已配置 AI 时才真正启动 Mastra 子进程（幂等）。 */
+async function ensureMastraStarted(): Promise<void> {
+  if (mastraStarted || mastraServer) return
+  if (process.env.DISABLE_MASTRA_SERVER === '1') return
+  // 未配置 AI 就不 spawn 常驻子进程，保持"轻量安静"的卖点
+  if (!validateAiConfig(loadAiConfig()).ok) return
+  startMastraServer()
+}
 
 function startMastraServer(): void {
+  mastraStarted = true
   if (process.env.DISABLE_MASTRA_SERVER === '1') return
   try {
     const entry = mastraServerEntry()
@@ -87,25 +98,17 @@ function stopMastraServer(): void {
     mastraServer.kill('SIGTERM')
     mastraServer = null
   }
+  mastraStarted = false
 }
 
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getDailyStats, async (): Promise<DailyStats> => {
-    const db = createDb()
-    try {
-      return await getDailyStats(db, todayLocal())
-    } finally {
-      db.close()
-    }
+    return getDailyStats(getSharedQueryDb(), todayLocal())
   })
   ipcMain.handle(IPC_CHANNELS.getYesterdayStats, async (): Promise<DailyStats> => {
-    const db = createDb()
-    try {
-      return await getDailyStats(db, yesterdayLocal())
-    } finally {
-      db.close()
-    }
+    return getDailyStats(getSharedQueryDb(), yesterdayLocal())
   })
+  ipcMain.handle(IPC_CHANNELS.mastraEnsureStarted, () => ensureMastraStarted())
   ipcMain.handle(IPC_CHANNELS.getMastraUrl, () => mastraUrl)
   ipcMain.handle(IPC_CHANNELS.getAiConfig, () => aiConfigStatus(loadAiConfig()))
   ipcMain.handle(IPC_CHANNELS.setAiConfig, async (_e, cfg: AiConfig): Promise<SetAiConfigResult> => {
@@ -209,43 +212,76 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-/** 全局输入监听（只初始化一次，避免 uiohook/键盘监听被重复 start 引起原生崩溃） */
+/**
+ * 全局输入监听。
+ *
+ * 授权感知（修复"先开应用后授权 → 永远统计不到"）：
+ * - 启动时已授权 → 立即开始监听；
+ * - 未授权 → 主动弹系统授权框引导授权，同时轮询权限状态，
+ *   一旦"未授权 → 已授权"，无需重启应用即自动开始监听。
+ * - 键盘与鼠标都只在权限确认后启动：未授权时 uiohook 的 hook_run 返回
+ *   AXAPI_DISABLED 会触发原生 abort() 崩溃；node-global-key-listener 的
+ *   MacKeyServer 子进程也会因 event tap 创建失败静默退出。
+ * 幂等守卫：listenersReady 防止 uiohook/键盘监听被重复 start。
+ */
+const PERMISSION_POLL_INTERVAL_MS = 2000
 let listenersReady = false
-function initInputListeners(): void {
+let promptedForPermission = false
+let permissionWatchTimer: NodeJS.Timeout | undefined
+
+function isInputPermissionGranted(): boolean {
+  return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false)
+}
+
+function stopPermissionWatch(): void {
+  if (permissionWatchTimer) {
+    clearInterval(permissionWatchTimer)
+    permissionWatchTimer = undefined
+  }
+}
+
+/** 真正启动键盘+鼠标监听（仅在权限确认后调用，幂等） */
+function startInputListeners(): void {
   if (listenersReady) return
   listenersReady = true
+  stopPermissionWatch()
 
-  // 键盘监听
+  // 键鼠监听：node-global-key-listener。
+  // macOS 上 MacKeyServer 的 event tap 同时上报 MOUSE LEFT/RIGHT/MIDDLE，
+  // 因此 darwin 完全不再使用 uiohook——uiohook 的 worker 子进程在打包未签名
+  // 场景下 event tap 创建失败会触发原生 abort()，把整个应用静默带走
+  // （try/catch 拦不住原生 abort），是"授权后应用消失"的元凶。
   try {
     const keyboard = new GlobalKeyboardListener()
-    keyboard.addListener((e, down) => {
-      if (e.name && e.name.toLowerCase().includes('mouse')) return
-      if (e.state === 'DOWN') return
-      if (!down) return
-      // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
-      const std = e.name ?? ''
-      if (!std) return
-      const keyName = keyDisplayName(std)
-      broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
-      collector.handleKeyPress(std)
-    })
+    void keyboard
+      .addListener((e, down) => {
+        const std = e.name ?? ''
+        if (!std) return
+        if (std.toLowerCase().includes('mouse')) {
+          // darwin：鼠标事件直接来自 MacKeyServer；其他平台该库不上报鼠标，忽略
+          if (process.platform === 'darwin' && down) {
+            const buttonName = std === 'MOUSE LEFT' ? 'Left' : std === 'MOUSE RIGHT' ? 'Right' : std === 'MOUSE MIDDLE' ? 'Middle' : null
+            if (!buttonName) return
+            collector.handleMouseEvent(buttonName)
+            broadcast(IPC_CHANNELS.mouseEvent, { type: 'mouse', name: buttonName, timestamp: Date.now() })
+          }
+          return
+        }
+        if (e.state === 'DOWN') return
+        if (!down) return
+        // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
+        const keyName = keyDisplayName(std)
+        broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
+        collector.handleKeyPress(std)
+      })
+      .catch(e => console.error('键盘监听启动失败:', e))
   } catch (e) {
     console.error('键盘监听初始化失败:', e)
   }
 
-  // 鼠标监听
-  try {
-    // 关键：未授权辅助功能时，uiohook 的 hook_run 会返回 AXAPI_DISABLED，
-    // 进而触发原生 abort() 崩溃（见 uiohook_worker_start 的错误处理）。
-    // 必须先检测权限，未授权则跳过鼠标监听并提示用户，而不是硬启动。
-    const trusted =
-      process.platform === 'darwin'
-        ? systemPreferences.isTrustedAccessibilityClient(false)
-        : true
-    if (!trusted) {
-      broadcast(IPC_CHANNELS.accessibilityDenied, { platform: process.platform })
-      console.warn('[input] 辅助功能未授权，跳过鼠标监听（避免 uiohook 原生崩溃）')
-    } else {
+  // 鼠标监听：仅非 macOS 使用 uiohook（Windows/Linux 无原生 abort 风险）
+  if (process.platform !== 'darwin') {
+    try {
       uIOhook.on('mousedown', e => {
         const buttonName = e.button === 1 ? 'Left' : e.button === 2 ? 'Right' : e.button === 3 ? 'Middle' : null
         if (!buttonName) return
@@ -257,15 +293,44 @@ function initInputListeners(): void {
         })
       })
       uIOhook.start()
+    } catch (e) {
+      console.error('鼠标监听初始化失败:', e)
     }
-  } catch (e) {
-    console.error('鼠标监听初始化失败:', e)
   }
+}
+
+function initInputListeners(): void {
+  if (listenersReady) return
+  if (isInputPermissionGranted()) {
+    startInputListeners()
+    return
+  }
+  broadcast(IPC_CHANNELS.accessibilityDenied, { platform: process.platform })
+  console.warn('[input] 辅助功能未授权，已提示用户授权，检测到授权后将自动开启监听（无需重启应用）')
+  // 主动弹一次系统授权框（true = 触发系统提示；用户点"打开系统设置"完成勾选）
+  if (process.platform === 'darwin' && !promptedForPermission) {
+    promptedForPermission = true
+    try {
+      systemPreferences.isTrustedAccessibilityClient(true)
+    } catch {
+      /* 弹框失败不影响轮询 */
+    }
+  }
+  // 轮询权限：从"未授权"变为"已授权"的那一刻自动开始监听
+  permissionWatchTimer ??= setInterval(() => {
+    if (listenersReady) {
+      stopPermissionWatch()
+      return
+    }
+    if (isInputPermissionGranted()) {
+      console.log('[input] 检测到辅助功能已授权，自动开启键盘/鼠标监听')
+      startInputListeners()
+    }
+  }, PERMISSION_POLL_INTERVAL_MS)
 }
 
 app.whenReady().then(() => {
   registerIpc()
-  startMastraServer()
   Menu.setApplicationMenu(null)
   initInputListeners()
   createWindow()
@@ -283,14 +348,15 @@ app.on('before-quit', e => {
   if (flushed) return
   e.preventDefault()
   flushed = true
-  void (async () => {
-    stopMastraServer()
-    try {
-      uIOhook.stop()
-    } catch {
-      /* ignore */
-    }
-    await collector.flushAndClose()
-    app.quit()
-  })()
+    void (async () => {
+      stopMastraServer()
+      try {
+        uIOhook.stop()
+      } catch {
+        /* ignore */
+      }
+      await collector.flushAndClose()
+      closeSharedQueryDb()
+      app.quit()
+    })()
 })

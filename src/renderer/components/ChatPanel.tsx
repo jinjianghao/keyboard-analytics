@@ -80,9 +80,13 @@ export default function ChatPanel(): React.JSX.Element {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault()
     if (!input.trim() || chatStatus !== 'ready' || !status.configured) return
+    const text = input.trim()
     setChatError('')
-    void sendMessage({ text: input.trim() })
     setInput('')
+    // 懒加载：确保 Mastra server 就绪后再发消息（首次会短暂拉起子进程）
+    void window.keyboardApi?.ensureMastraStarted().then(() => {
+      void sendMessage({ text })
+    })
   }
 
   /** 选择预设时自动填充 baseUrl / model */

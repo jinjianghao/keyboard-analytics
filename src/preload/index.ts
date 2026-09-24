@@ -25,6 +25,7 @@ const api: KeyboardAnalyticsApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.mouseEvent, listener)
   },
   getMastraUrl: () => ipcRenderer.invoke(IPC_CHANNELS.getMastraUrl),
+  ensureMastraStarted: () => ipcRenderer.invoke(IPC_CHANNELS.mastraEnsureStarted),
   getAiConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getAiConfig),
   setAiConfig: (cfg: AiConfig) => ipcRenderer.invoke(IPC_CHANNELS.setAiConfig, cfg)
 }

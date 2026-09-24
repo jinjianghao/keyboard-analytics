@@ -9,7 +9,8 @@ interface LiveCounters {
   keyPresses: Record<string, number>
   combinationPresses: Record<string, number>
   mouse: { left: number; right: number; middle: number }
-  total: number
+  /** 本段普通键实时增量（与历史 totalPresses 同口径，仅普通键） */
+  normalKeys: number
   startTime: number
 }
 
@@ -44,7 +45,7 @@ export default function StatsPanel(): React.JSX.Element {
     keyPresses: {},
     combinationPresses: {},
     mouse: { left: 0, right: 0, middle: 0 },
-    total: 0,
+    normalKeys: 0,
     startTime: Date.now()
   })
   const [now, setNow] = useState(Date.now())
@@ -64,7 +65,7 @@ export default function StatsPanel(): React.JSX.Element {
       setLive({
         ...cur,
         [target]: { ...cur[target], [data.key]: (cur[target][data.key] ?? 0) + 1 },
-        total: cur.total + 1
+        normalKeys: cur.normalKeys + (target === 'keyPresses' ? 1 : 0)
       })
     })
   }, [])
@@ -96,7 +97,7 @@ export default function StatsPanel(): React.JSX.Element {
           keyPresses: {},
           combinationPresses: {},
           mouse: { left: 0, right: 0, middle: 0 },
-          total: 0
+          normalKeys: 0
         }))
       })
     }, 30_000)
@@ -113,8 +114,8 @@ export default function StatsPanel(): React.JSX.Element {
         <p className="running-time">已运行时间：{formatDuration(runningTime)}</p>
         <div className="stat-section">
           <h3>键盘统计</h3>
-          <p>键盘按键次数：{stats.totalPresses + live.total}</p>
-          <p>最近按键（实时增量）：{live.total}</p>
+          <p>键盘按键次数：{stats.totalPresses + live.normalKeys}</p>
+          <p>最近按键（实时增量）：{live.normalKeys}</p>
         </div>
         <div className="stat-section">
           <h3>鼠标统计</h3>
