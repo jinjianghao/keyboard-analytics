@@ -209,43 +209,76 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-/** 全局输入监听（只初始化一次，避免 uiohook/键盘监听被重复 start 引起原生崩溃） */
+/**
+ * 全局输入监听。
+ *
+ * 授权感知（修复"先开应用后授权 → 永远统计不到"）：
+ * - 启动时已授权 → 立即开始监听；
+ * - 未授权 → 主动弹系统授权框引导授权，同时轮询权限状态，
+ *   一旦"未授权 → 已授权"，无需重启应用即自动开始监听。
+ * - 键盘与鼠标都只在权限确认后启动：未授权时 uiohook 的 hook_run 返回
+ *   AXAPI_DISABLED 会触发原生 abort() 崩溃；node-global-key-listener 的
+ *   MacKeyServer 子进程也会因 event tap 创建失败静默退出。
+ * 幂等守卫：listenersReady 防止 uiohook/键盘监听被重复 start。
+ */
+const PERMISSION_POLL_INTERVAL_MS = 2000
 let listenersReady = false
-function initInputListeners(): void {
+let promptedForPermission = false
+let permissionWatchTimer: NodeJS.Timeout | undefined
+
+function isInputPermissionGranted(): boolean {
+  return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false)
+}
+
+function stopPermissionWatch(): void {
+  if (permissionWatchTimer) {
+    clearInterval(permissionWatchTimer)
+    permissionWatchTimer = undefined
+  }
+}
+
+/** 真正启动键盘+鼠标监听（仅在权限确认后调用，幂等） */
+function startInputListeners(): void {
   if (listenersReady) return
   listenersReady = true
+  stopPermissionWatch()
 
-  // 键盘监听
+  // 键鼠监听：node-global-key-listener。
+  // macOS 上 MacKeyServer 的 event tap 同时上报 MOUSE LEFT/RIGHT/MIDDLE，
+  // 因此 darwin 完全不再使用 uiohook——uiohook 的 worker 子进程在打包未签名
+  // 场景下 event tap 创建失败会触发原生 abort()，把整个应用静默带走
+  // （try/catch 拦不住原生 abort），是"授权后应用消失"的元凶。
   try {
     const keyboard = new GlobalKeyboardListener()
-    keyboard.addListener((e, down) => {
-      if (e.name && e.name.toLowerCase().includes('mouse')) return
-      if (e.state === 'DOWN') return
-      if (!down) return
-      // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
-      const std = e.name ?? ''
-      if (!std) return
-      const keyName = keyDisplayName(std)
-      broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
-      collector.handleKeyPress(std)
-    })
+    void keyboard
+      .addListener((e, down) => {
+        const std = e.name ?? ''
+        if (!std) return
+        if (std.toLowerCase().includes('mouse')) {
+          // darwin：鼠标事件直接来自 MacKeyServer；其他平台该库不上报鼠标，忽略
+          if (process.platform === 'darwin' && down) {
+            const buttonName = std === 'MOUSE LEFT' ? 'Left' : std === 'MOUSE RIGHT' ? 'Right' : std === 'MOUSE MIDDLE' ? 'Middle' : null
+            if (!buttonName) return
+            collector.handleMouseEvent(buttonName)
+            broadcast(IPC_CHANNELS.mouseEvent, { type: 'mouse', name: buttonName, timestamp: Date.now() })
+          }
+          return
+        }
+        if (e.state === 'DOWN') return
+        if (!down) return
+        // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
+        const keyName = keyDisplayName(std)
+        broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
+        collector.handleKeyPress(std)
+      })
+      .catch(e => console.error('键盘监听启动失败:', e))
   } catch (e) {
     console.error('键盘监听初始化失败:', e)
   }
 
-  // 鼠标监听
-  try {
-    // 关键：未授权辅助功能时，uiohook 的 hook_run 会返回 AXAPI_DISABLED，
-    // 进而触发原生 abort() 崩溃（见 uiohook_worker_start 的错误处理）。
-    // 必须先检测权限，未授权则跳过鼠标监听并提示用户，而不是硬启动。
-    const trusted =
-      process.platform === 'darwin'
-        ? systemPreferences.isTrustedAccessibilityClient(false)
-        : true
-    if (!trusted) {
-      broadcast(IPC_CHANNELS.accessibilityDenied, { platform: process.platform })
-      console.warn('[input] 辅助功能未授权，跳过鼠标监听（避免 uiohook 原生崩溃）')
-    } else {
+  // 鼠标监听：仅非 macOS 使用 uiohook（Windows/Linux 无原生 abort 风险）
+  if (process.platform !== 'darwin') {
+    try {
       uIOhook.on('mousedown', e => {
         const buttonName = e.button === 1 ? 'Left' : e.button === 2 ? 'Right' : e.button === 3 ? 'Middle' : null
         if (!buttonName) return
@@ -257,10 +290,40 @@ function initInputListeners(): void {
         })
       })
       uIOhook.start()
+    } catch (e) {
+      console.error('鼠标监听初始化失败:', e)
     }
-  } catch (e) {
-    console.error('鼠标监听初始化失败:', e)
   }
+}
+
+function initInputListeners(): void {
+  if (listenersReady) return
+  if (isInputPermissionGranted()) {
+    startInputListeners()
+    return
+  }
+  broadcast(IPC_CHANNELS.accessibilityDenied, { platform: process.platform })
+  console.warn('[input] 辅助功能未授权，已提示用户授权，检测到授权后将自动开启监听（无需重启应用）')
+  // 主动弹一次系统授权框（true = 触发系统提示；用户点"打开系统设置"完成勾选）
+  if (process.platform === 'darwin' && !promptedForPermission) {
+    promptedForPermission = true
+    try {
+      systemPreferences.isTrustedAccessibilityClient(true)
+    } catch {
+      /* 弹框失败不影响轮询 */
+    }
+  }
+  // 轮询权限：从"未授权"变为"已授权"的那一刻自动开始监听
+  permissionWatchTimer ??= setInterval(() => {
+    if (listenersReady) {
+      stopPermissionWatch()
+      return
+    }
+    if (isInputPermissionGranted()) {
+      console.log('[input] 检测到辅助功能已授权，自动开启键盘/鼠标监听')
+      startInputListeners()
+    }
+  }, PERMISSION_POLL_INTERVAL_MS)
 }
 
 app.whenReady().then(() => {

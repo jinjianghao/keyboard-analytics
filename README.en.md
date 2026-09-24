@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-> On first launch, grant the app permission under **System Settings → Privacy & Security → Accessibility**, otherwise global input tracking won't work.
+> On first launch, grant the app permission under **both System Settings → Privacy & Security → Accessibility** *and* **Input Monitoring**: Accessibility drives mouse tracking, Input Monitoring drives keyboard tracking — enabling only one yields "mouse counted but keys not." The app auto-starts listening within a few seconds of granting, no restart needed. After an upgrade, stale entries stop working — select "键盘统计分析" in the list, press **−** to remove it, then **+** to re-add and toggle it on.
 
 ### Build for distribution
 

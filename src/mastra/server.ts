@@ -44,7 +44,13 @@ async function start(): Promise<void> {
 
   server = serve({ fetch: app.fetch, port: PORT })
   console.log(`[mastra] server listening on http://127.0.0.1:${PORT}`)
-  console.log(`[mastra] agent ready: analytics-agent (model: ${JSON.stringify(mastra.getAgentById('analytics-agent').getModel())})`)
+  // AI 未配置时 getModel() 会抛错——这只是诊断日志，绝不能让整个 server 进程退出：
+  // server 存活 = 其余功能正常，聊天在用户于设置面板配置 AI 后自然可用。
+  try {
+    console.log(`[mastra] agent ready: analytics-agent (model: ${JSON.stringify(mastra.getAgentById('analytics-agent').getModel())})`)
+  } catch (e) {
+    console.warn(`[mastra] AI 尚未配置，聊天功能将在设置面板完成配置后可用：${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 void start().catch(err => {
