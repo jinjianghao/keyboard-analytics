@@ -15,6 +15,7 @@
     "mastra:build": "mastra build",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --mac",
+    "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
     "dist:all": "npm run build && electron-builder --mac --win --linux",
     "rebuild:native": "electron-rebuild -f -w sqlite3,uiohook-napi"
