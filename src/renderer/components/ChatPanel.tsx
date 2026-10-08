@@ -27,6 +27,7 @@ export default function ChatPanel(): React.JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [status, setStatus] = useState<AiConfigStatus>(EMPTY_STATUS)
   const historyRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // 设置面板表单：provider 对应预设 id
   const [cfgForm, setCfgForm] = useState<AiConfig>({
@@ -79,15 +80,29 @@ export default function ChatPanel(): React.JSX.Element {
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault()
-    if (!input.trim() || chatStatus !== 'ready' || !status.configured) return
-    const text = input.trim()
+    doSend(input)
+  }
+
+  /** 发送一条消息（懒启动 Mastra 后再发） */
+  const doSend = (text: string): void => {
+    const t = text.trim()
+    if (!t || chatStatus !== 'ready' || !status.configured) return
     setChatError('')
     setInput('')
-    // 懒加载：确保 Mastra server 就绪后再发消息（首次会短暂拉起子进程）
     void window.keyboardApi?.ensureMastraStarted().then(() => {
-      void sendMessage({ text })
+      void sendMessage({ text: t })
     })
   }
+
+  // 展开面板 / 关闭设置时自动聚焦输入框
+  useEffect(() => {
+    if (!collapsed && !showSettings) {
+      // 延迟到渲染稳定后聚焦
+      const id = window.setTimeout(() => inputRef.current?.focus(), 50)
+      return () => window.clearTimeout(id)
+    }
+    return undefined
+  }, [collapsed, showSettings])
 
   /** 选择预设时自动填充 baseUrl / model */
   const selectProvider = (id: string): void => {
@@ -270,8 +285,13 @@ export default function ChatPanel(): React.JSX.Element {
             )}
             {chatStatus === 'submitted' && (
               <div className="msg msg-ai">
-                <span className="bubble bubble-ai">
-                  <span className="loading" /> AI 正在思考...
+                <span className="bubble bubble-ai typing-bubble">
+                  <span className="typing">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span className="typing-text">AI 正在思考…</span>
                 </span>
               </div>
             )}
@@ -296,10 +316,19 @@ export default function ChatPanel(): React.JSX.Element {
             )}
           </div>
           <form className="chat-input-row" onSubmit={handleSubmit}>
-            <input
+            <textarea
+              ref={inputRef}
               className="chat-input"
               value={input}
+              rows={1}
               onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                // Enter 发送，Shift+Enter 换行；忽略中文输入法组字过程中的 Enter
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  doSend(input)
+                }
+              }}
               placeholder={status.configured ? '问点什么，如：今天最常用的按键是什么？' : '请先完成 AI 服务配置'}
               disabled={chatStatus !== 'ready' || !status.configured}
             />

@@ -14,6 +14,7 @@ import type { AiConfig } from '../shared/ai-config.ts'
 const api: KeyboardAnalyticsApi = {
   getDailyStats: () => ipcRenderer.invoke(IPC_CHANNELS.getDailyStats),
   getYesterdayStats: () => ipcRenderer.invoke(IPC_CHANNELS.getYesterdayStats),
+  getTrend: (days: number) => ipcRenderer.invoke(IPC_CHANNELS.getTrend, days),
   onKeyEvent: cb => {
     const listener = (_: unknown, data: KeyboardEventPayload): void => cb(data)
     ipcRenderer.on(IPC_CHANNELS.keyEvent, listener)
@@ -23,6 +24,11 @@ const api: KeyboardAnalyticsApi = {
     const listener = (_: unknown, data: MouseEventPayload): void => cb(data)
     ipcRenderer.on(IPC_CHANNELS.mouseEvent, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.mouseEvent, listener)
+  },
+  onStatsSynced: cb => {
+    const listener = (): void => cb()
+    ipcRenderer.on(IPC_CHANNELS.statsSynced, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.statsSynced, listener)
   },
   getMastraUrl: () => ipcRenderer.invoke(IPC_CHANNELS.getMastraUrl),
   ensureMastraStarted: () => ipcRenderer.invoke(IPC_CHANNELS.mastraEnsureStarted),

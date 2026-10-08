@@ -13,10 +13,10 @@ import { uIOhook } from 'uiohook-napi'
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getDailyStats, getSharedQueryDb, closeSharedQueryDb, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
+import { getDailyStats, getDailyTotals, getSharedQueryDb, closeSharedQueryDb, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
 import { EventCollector } from './event-collector.ts'
 import { aiConfigStatus, loadAiConfig, saveAiConfig, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
-import { IPC_CHANNELS, type DailyStats } from '../shared/types.ts'
+import { IPC_CHANNELS, type DailyStats, type TrendData } from '../shared/types.ts'
 // 按键识别：跨平台标准名 -> 中文显示（macOS Intel/AppleSilicon / Windows / Linux 通用）
 // 不再依赖按平台硬编码的 vKey 映射表（macOS kVK 与 Windows VK 数值不一致）。
 import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
@@ -51,7 +51,7 @@ function dbPathForChild(): string {
   return path.resolve(__dirname, '../../keyboard_stats.db')
 }
 
-const collector = new EventCollector()
+const collector = new EventCollector(() => broadcast(IPC_CHANNELS.statsSynced, {}))
 let mastraServer: ChildProcess | null = null
 const mastraUrl = `http://127.0.0.1:${process.env.MASTRA_PORT ?? 4111}`
 let mastraStarted = false
@@ -108,6 +108,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getYesterdayStats, async (): Promise<DailyStats> => {
     return getDailyStats(getSharedQueryDb(), yesterdayLocal())
   })
+  ipcMain.handle(IPC_CHANNELS.getTrend, async (_e, days: number): Promise<TrendData> => {
+    const rows = await getDailyTotals(getSharedQueryDb(), Math.max(2, Math.min(90, Number(days) || 7)))
+    return { dates: rows.map(r => r.date), totals: rows.map(r => r.total) }
+  })
   ipcMain.handle(IPC_CHANNELS.mastraEnsureStarted, () => ensureMastraStarted())
   ipcMain.handle(IPC_CHANNELS.getMastraUrl, () => mastraUrl)
   ipcMain.handle(IPC_CHANNELS.getAiConfig, () => aiConfigStatus(loadAiConfig()))
@@ -122,7 +126,12 @@ function registerIpc(): void {
       const msg = err instanceof Error ? err.message : String(err)
       return { ok: false, status: aiConfigStatus(cfg), error: `连接失败：${msg}` }
     }
-    saveAiConfig(cfg)
+    try {
+      saveAiConfig(cfg)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, status: aiConfigStatus(cfg), error: `配置保存失败：${msg}` }
+    }
     return { ok: true, status: aiConfigStatus(loadAiConfig()) }
   })
 }
@@ -267,12 +276,13 @@ function startInputListeners(): void {
           }
           return
         }
+        // 转发按下/抬起给采集器，用于组合键配对判定（纯修饰键不计入组合）
+        collector.handleKeyTransition(std, e.state === 'DOWN')
         if (e.state === 'DOWN') return
         if (!down) return
         // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
         const keyName = keyDisplayName(std)
         broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
-        collector.handleKeyPress(std)
       })
       .catch(e => console.error('键盘监听启动失败:', e))
   } catch (e) {

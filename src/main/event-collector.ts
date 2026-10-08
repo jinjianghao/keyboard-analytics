@@ -5,10 +5,17 @@
  * - 缓存写入：普通键/组合键/鼠标事件先入 Map，达阈值或 30s 定时批量写库
  * - 事务包裹批量写入，失败回滚
  * 单独持有数据库连接（createDb 返回独立连接），避免与查询连接串扰。
+ *
+ * 组合键判定（修复"单独按修饰键也被计入组合统计"）：
+ * - 通过 handleKeyTransition 跟踪按键"按下/抬起"；
+ * - 修饰键（Shift/Ctrl/Alt/Cmd/Fn）只有与某个非修饰键同时按住（配对）时，
+ *   才计为组合键；单独按下并抬起（无配对按键）的修饰键不计入。
+ * - 非修饰键始终作为普通键计入。
  */
 import type sqlite3 from 'sqlite3'
 import { createDb, todayLocal } from '../shared/stats-repository.ts'
-import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
+import { keyDisplayName } from './key-name-map.ts'
+import { ShortcutTracker } from './shortcut-tracker.ts'
 
 const CONSTANTS = {
   NORMAL_CACHE_THRESHOLD: 5,
@@ -29,31 +36,48 @@ export class EventCollector {
   private mouseCache = new Map<string, number>()
   private syncLock = false
   private timer: NodeJS.Timeout | undefined
+  /** 组合键配对判定（纯逻辑） */
+  private tracker = new ShortcutTracker()
 
-  constructor() {
+  /** 每次成功写库后的回调（供主进程通知渲染层刷新，替代轮询） */
+  private onSynced?: () => void
+
+  constructor(onSynced?: () => void) {
     this.db = createDb()
+    this.onSynced = onSynced
     this.timer = setInterval(() => void this.syncAll(), CONSTANTS.SYNC_INTERVAL_MS)
     this.timer.unref()
   }
 
-  /** 标准名判断是否为修饰/快捷键类按键 */
-  isShortcutKey(stdName: string): boolean {
-    return isShortcutLike(stdName)
-  }
-
-  handleKeyPress(stdName: string): void {
-    const isShortcut = this.isShortcutKey(stdName)
-    const cache = isShortcut ? this.shortcutCache : this.normalCache
-    const threshold = isShortcut ? CONSTANTS.SHORTCUT_CACHE_THRESHOLD : CONSTANTS.NORMAL_CACHE_THRESHOLD
-    // 入库与面板展示统一用中文名，避免标准名/中文名两套值并存
-    const stored = keyDisplayName(stdName)
-    cache.set(stored, (cache.get(stored) ?? 0) + 1)
-    if (cache.size >= threshold) void this.sync(isShortcut)
+  /**
+   * 处理按键"按下/抬起"转换。普通键在"抬起"时计数（与既有行为一致，天然去重
+   * 键盘自动重复）；修饰键是否计入组合由 ShortcutTracker 判定。
+   */
+  handleKeyTransition(stdName: string, isDown: boolean): void {
+    if (isDown) {
+      this.tracker.down(stdName)
+      return
+    }
+    const result = this.tracker.up(stdName)
+    if (result === 'normal') this.countNormalKey(stdName)
+    else if (result === 'combo') this.countCombinationKey(stdName)
   }
 
   handleMouseEvent(buttonName: string): void {
     this.mouseCache.set(buttonName, (this.mouseCache.get(buttonName) ?? 0) + 1)
     if (this.mouseCache.size >= CONSTANTS.NORMAL_CACHE_THRESHOLD) void this.syncMouse()
+  }
+
+  private countNormalKey(stdName: string): void {
+    const stored = keyDisplayName(stdName)
+    this.normalCache.set(stored, (this.normalCache.get(stored) ?? 0) + 1)
+    if (this.normalCache.size >= CONSTANTS.NORMAL_CACHE_THRESHOLD) void this.sync(false)
+  }
+
+  private countCombinationKey(stdName: string): void {
+    const stored = keyDisplayName(stdName)
+    this.shortcutCache.set(stored, (this.shortcutCache.get(stored) ?? 0) + 1)
+    if (this.shortcutCache.size >= CONSTANTS.SHORTCUT_CACHE_THRESHOLD) void this.sync(true)
   }
 
   private async sync(isShortcut: boolean): Promise<void> {
@@ -68,6 +92,7 @@ export class EventCollector {
       entries: [...cache.entries()]
     })
     cache.clear()
+    this.onSynced?.()
   }
 
   private async syncMouse(): Promise<void> {
@@ -79,6 +104,7 @@ export class EventCollector {
       entries: [...this.mouseCache.entries()]
     })
     this.mouseCache.clear()
+    this.onSynced?.()
   }
 
   private async upsert({ table, keyColumn, entries }: UpsertArgs): Promise<void> {

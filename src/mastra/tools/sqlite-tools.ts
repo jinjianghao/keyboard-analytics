@@ -7,7 +7,7 @@
  */
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { getSharedQueryDb, getSchema, query, getDailyStats } from '../../shared/stats-repository.ts'
+import { getSharedQueryDb, getSchema, query, getDailyStats, type TableSchema } from '../../shared/stats-repository.ts'
 
 /**
  * 只读 SQL 执行工具。
@@ -38,7 +38,8 @@ export const executeQueryTool = createTool({
   }
 })
 
-/** 数据库结构读取工具 */
+/** 数据库结构读取工具；schema 进程内缓存，避免每次回答都重查（结构极少变化） */
+let cachedSchema: TableSchema[] | null = null
 export const getSchemaTool = createTool({
   id: 'get-schema',
   description: '获取键盘统计数据库的表结构与列定义，用于理解可查询的数据模型。',
@@ -52,8 +53,10 @@ export const getSchemaTool = createTool({
     )
   }),
   execute: async () => {
-    const schema = await getSchema(getSharedQueryDb())
-    return { schema }
+    if (!cachedSchema) {
+      cachedSchema = await getSchema(getSharedQueryDb())
+    }
+    return { schema: cachedSchema }
   }
 })
 

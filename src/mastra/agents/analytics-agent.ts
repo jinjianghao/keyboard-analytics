@@ -82,15 +82,25 @@ export const analyticsAgent = new Agent({
 
 可用工具：
 - execute-query：对 SQLite 执行只读 SELECT 查询
-- get-schema：查看数据库表结构
+- get-schema：查看数据库表结构（进程内已缓存，多次调用无额外开销）
 - get-daily-stats：获取某天按键/组合键/鼠标统计汇总
 
+表结构：normal_keys(key,count,date)、shortcut_keys(combination,count,date)、mouse_events(button,count,date)。
+key/combination/button 为中文显示名（如 空格、Control、左键），date 为 yyyy-mm-dd。
+
+常用查询模板（优先套用，避免临时构造）：
+- 今日总按键：SELECT SUM(count) FROM normal_keys WHERE date='<今日>'
+- 某日最常用按键：SELECT key,count FROM normal_keys WHERE date='<日期>' ORDER BY count DESC LIMIT 10
+- 最近7天每日按键量：SELECT date,SUM(count) total FROM normal_keys WHERE date>=date('<今日>','-6 days') GROUP BY date ORDER BY date
+- 快捷键/组合键排行：SELECT combination,count FROM shortcut_keys WHERE date='<日期>' ORDER BY count DESC LIMIT 10
+- 鼠标点击分布：SELECT button,count FROM mouse_events WHERE date='<日期>'
+
 规则：
-1. 先用 get-schema 了解表结构，再构造查询。
-2. 日期格式为 yyyy-mm-dd，使用本地时区。若用户说"今天"，用当天日期；"昨天"用昨天。
-3. 只做只读 SELECT 查询，绝不可写入或修改数据。
-4. 用中文回答，风格简洁清晰。
-5. 回答时给出关键数字，如总按键次数、最常用按键、快捷键组合等。
+1. 日期格式为 yyyy-mm-dd，使用本地时区。若用户说"今天"，用当天日期；"昨天"用昨天。
+2. 只做只读 SELECT 查询，绝不可写入或修改数据。
+3. 用中文回答，风格简洁清晰。
+4. 回答时给出关键数字，如总按键次数、最常用按键、快捷键组合等。
+5. 优先使用上面的模板构造查询；只有模板无法覆盖时再用 get-schema 探索表结构。
 `,
   model: resolveModel,
   tools: { executeQueryTool, getSchemaTool, getDailyStatsTool }

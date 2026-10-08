@@ -209,3 +209,46 @@ export function yesterdayLocal(): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+/** 在 yyyy-mm-dd 基础上加减天数（本地时区） */
+function addDaysLocal(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + n)
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  return `${dt.getFullYear()}-${mm}-${dd}`
+}
+
+export interface DailyTotal {
+  date: string
+  total: number
+}
+
+/**
+ * 最近 N 天的每日普通键按键总量（含无数据的日期，补 0），日期升序。
+ * 供趋势可视化使用。
+ */
+export function getDailyTotals(
+  db: sqlite3.Database,
+  days: number,
+  end = todayLocal()
+): Promise<DailyTotal[]> {
+  const start = addDaysLocal(end, -(days - 1))
+  const { promise, resolve, reject } = Promise.withResolvers<DailyTotal[]>()
+  db.all(
+    `SELECT date, SUM(count) AS total FROM normal_keys
+     WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date ASC`,
+    [start, end],
+    (err, rows: Array<{ date: string; total: number }>) => {
+      if (err) return reject(err)
+      const map = new Map(rows.map(r => [r.date, r.total]))
+      const result: DailyTotal[] = []
+      for (let i = 0; i < days; i++) {
+        const d = addDaysLocal(start, i)
+        result.push({ date: d, total: map.get(d) ?? 0 })
+      }
+      resolve(result)
+    }
+  )
+  return promise
+}
