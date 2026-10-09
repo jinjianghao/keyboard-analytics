@@ -1,0 +1,33 @@
+name: runner-canary
+
+# 纯诊断用：不构建、不发布，只验证各 GitHub-hosted runner 标签能否被分配。
+# 不匹配 v* 的 tag 不会触发 build-release，所以不会产生 release。
+# 排查完可以删掉这个文件。
+
+on:
+  push:
+    tags:
+      - 'canary*'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    # fail-fast=false：让每个标签各自排队/各自出结果，才能看出"哪些能用哪些不能用"
+    # 注意 timeout-minutes 只在 job 已被 runner 接单后才计时；
+    # 如果某标签根本没有 runner，它会一直 queued（GitHub 24h 后过期）。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - name: Probe ${{ matrix.os }}
+        shell: bash
+        run: |
+          echo "=== runner canary: ${{ matrix.os }} ==="
+          echo "ImageOS=$ImageOS  ImageVersion=$ImageVersion"
+          echo "arch=$(uname -m)"
+          echo "user=$(whoami)"
+          node -v 2>/dev/null || echo "node: not on PATH"
+          echo "done"
