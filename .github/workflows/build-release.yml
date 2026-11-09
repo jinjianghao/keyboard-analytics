@@ -38,15 +38,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
-            arch: x64
-            target: mac
+          # universal：在 arm64 runner 上一次产出 Intel(x64)+Apple Silicon(arm64) 双架构 DMG，
+          # 规避 macOS-13(Intel) runner 在免费额度下长期排队的问题。
           - os: macos-latest
-            arch: arm64
+            arch: universal
             target: mac
+            flags: --universal
           - os: windows-latest
             arch: x64
             target: win
+            flags: ''
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -61,9 +62,17 @@ jobs:
 
       # --publish never：electron-builder 自带的 publisher 会和多 runner 抢同一个 release，
       # 这里只让它把产物写到 release/（build.directories.output），上传交给 publish job。
-      # npm run xxx -- 之后的参数会追加给 electron-builder。
+      # electron-builder 下载依赖偶发 504/网关超时 → 自动重试最多 3 次，吞掉瞬时故障。
       - name: Build & package (${{ matrix.target }} ${{ matrix.arch }})
-        run: npm run dist:${{ matrix.target }} -- --publish never
+        shell: bash
+        run: |
+          attempt=0
+          until npm run dist:${{ matrix.target }} -- --publish never ${{ matrix.flags }}; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 3 ]; then echo "::error::打包连续失败 3 次"; exit 1; fi
+            echo "::warning::第 $attempt 次尝试失败，15s 后重试"
+            sleep 15
+          done
 
       - name: List artifacts
         shell: bash
