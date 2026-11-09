@@ -1,6 +1,6 @@
 {
   "name": "keyboard-stats",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "description": "键盘使用情况统计工具（Mastra 重构版）",
   "main": "./out/main/index.cjs",
   "type": "module",
@@ -41,7 +41,8 @@
         "dmg",
         "zip"
       ],
-      "identity": null
+      "identity": null,
+      "x64ArchFiles": "**/node-global-key-listener/bin/MacKeyServer"
     },
     "win": {
       "target": [

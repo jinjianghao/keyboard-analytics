@@ -62,16 +62,22 @@ jobs:
 
       # --publish never：electron-builder 自带的 publisher 会和多 runner 抢同一个 release，
       # 这里只让它把产物写到 release/（build.directories.output），上传交给 publish job。
-      # electron-builder 下载依赖偶发 504/网关超时 → 自动重试最多 3 次，吞掉瞬时故障。
+      # 从 npmmirror 拉 Electron 二进制/构建工具，规避 GitHub Release 资产偶发 504。
+      # electron-builder 下载偶发 504/网关超时 → 指数退避重试最多 4 次。
       - name: Build & package (${{ matrix.target }} ${{ matrix.arch }})
         shell: bash
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
         run: |
           attempt=0
+          delay=20
           until npm run dist:${{ matrix.target }} -- --publish never ${{ matrix.flags }}; do
             attempt=$((attempt + 1))
-            if [ "$attempt" -ge 3 ]; then echo "::error::打包连续失败 3 次"; exit 1; fi
-            echo "::warning::第 $attempt 次尝试失败，15s 后重试"
-            sleep 15
+            if [ "$attempt" -ge 4 ]; then echo "::error::打包连续失败 4 次"; exit 1; fi
+            echo "::warning::第 $attempt 次尝试失败，${delay}s 后重试"
+            sleep "$delay"
+            delay=$((delay * 2))
           done
 
       - name: List artifacts
