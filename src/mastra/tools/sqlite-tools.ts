@@ -8,10 +8,11 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 import { getSharedQueryDb, getSchema, query, getDailyStats, type TableSchema } from '../../shared/stats-repository.ts'
+import { assertReadOnlySelect } from '../../shared/sql-guard.ts'
 
 /**
  * 只读 SQL 执行工具。
- * 通过黑名单拦截写操作，防止 agent 生成破坏性 SQL。
+ * 通过白名单只放行单条 SELECT/WITH 查询，防止 agent 生成破坏性 SQL。
  */
 export const executeQueryTool = createTool({
   id: 'execute-query',
@@ -26,13 +27,7 @@ export const executeQueryTool = createTool({
     rowCount: z.number()
   }),
   execute: async ({ sql }) => {
-    const blocked =
-      /^\s*(insert|update|delete|drop|alter|create|replace|truncate|vacuum|attach|detach|pragma|reindex)\b/i.test(
-        sql
-      )
-    if (blocked) {
-      throw new Error('仅允许只读 SELECT 查询')
-    }
+    assertReadOnlySelect(sql)
     const { rows, columns } = await query(getSharedQueryDb(), sql)
     return { rows, columns, rowCount: rows.length }
   }

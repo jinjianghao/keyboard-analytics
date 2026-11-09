@@ -25,8 +25,10 @@ export function isAiConfigured(): boolean {
 export function resolveModel(): ModelConfig {
   // 1. 配置文件优先（UI 设置面板写入，均为 OpenAI 兼容 custom 端点）
   const cfg = loadAiConfig()
+  // 子进程无解密器时 loadAiConfig 无法还原 key，回退到主进程经环境变量注入的明文。
+  const apiKey = cfg?.apiKey || process.env.AI_API_KEY || ''
   if (cfg) {
-    if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
+    if (!cfg.baseUrl || !apiKey || !cfg.model) {
       throw new Error(
         'AI 服务未配置完整：请在设置面板选择服务商并填写 API Key（保存时自动校验）'
       )
@@ -34,7 +36,7 @@ export function resolveModel(): ModelConfig {
     return {
       id: `custom/${cfg.model}` as `${string}/${string}`,
       url: cfg.baseUrl,
-      apiKey: cfg.apiKey
+      apiKey
     }
   }
 

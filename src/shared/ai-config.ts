@@ -68,10 +68,35 @@ export interface AiConfig {
   provider: string
   /** OpenAI 兼容 base_url */
   baseUrl: string
-  /** API key */
+  /** API key（运行时为明文；落盘时若可用则加密） */
   apiKey: string
   /** 模型名 */
   model: string
+}
+
+/** 磁盘上的存储形态：apiKey 可能是密文，用 apiKeyEncrypted 标记 */
+interface StoredAiConfig {
+  provider: string
+  baseUrl: string
+  model: string
+  apiKey: string
+  apiKeyEncrypted?: boolean
+}
+
+/**
+ * 可注入的加解密器。默认恒等（明文），保证共享模块无 Electron 依赖、
+ * 且子进程/直接 node 运行场景仍可用。主进程在 app ready 后注入 safeStorage 实现。
+ */
+export interface SecretCipher {
+  encrypt: (plain: string) => string
+  decrypt: (stored: string) => string
+}
+let cipher: SecretCipher = { encrypt: s => s, decrypt: s => s }
+let cipherActive = false
+/** 注入真实加解密器（如 Electron safeStorage）；注入后新保存的 key 将加密落盘。 */
+export function setConfigCipher(c: SecretCipher): void {
+  cipher = c
+  cipherActive = true
 }
 
 /** 空配置状态 */
@@ -105,17 +130,21 @@ export function configPath(): string {
   return path.resolve(process.cwd(), 'ai-config.json')
 }
 
-/** 读取已保存的配置；文件不存在/损坏返回 null */
+/** 读取已保存的配置；文件不存在/损坏返回 null。密文且无法解密时 apiKey 置空（交由上层用环境变量兜底）。 */
 export function loadAiConfig(): AiConfig | null {
   const p = configPath()
   try {
     const raw = fs.readFileSync(p, 'utf8')
-    const data = JSON.parse(raw) as Partial<AiConfig>
+    const data = JSON.parse(raw) as Partial<StoredAiConfig>
     if (!data.provider || typeof data.provider !== 'string') return null
+    const storedKey = typeof data.apiKey === 'string' ? data.apiKey : ''
+    const encrypted = data.apiKeyEncrypted === true
+    // 密文但本进程未注入解密器（如子进程）：无法还原，置空。
+    const apiKey = encrypted && !cipherActive ? '' : encrypted ? cipher.decrypt(storedKey) : storedKey
     return {
       provider: data.provider,
       baseUrl: typeof data.baseUrl === 'string' ? data.baseUrl : '',
-      apiKey: typeof data.apiKey === 'string' ? data.apiKey : '',
+      apiKey,
       model: typeof data.model === 'string' ? data.model : ''
     }
   } catch {
@@ -123,11 +152,18 @@ export function loadAiConfig(): AiConfig | null {
   }
 }
 
-/** 保存配置到磁盘 */
+/** 保存配置到磁盘；若已注入加解密器则加密 apiKey 后落盘。 */
 export function saveAiConfig(cfg: AiConfig): void {
   const p = configPath()
   fs.mkdirSync(path.dirname(p), { recursive: true })
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2), 'utf8')
+  const stored: StoredAiConfig = {
+    provider: cfg.provider,
+    baseUrl: cfg.baseUrl,
+    model: cfg.model,
+    apiKey: cipherActive ? cipher.encrypt(cfg.apiKey) : cfg.apiKey,
+    apiKeyEncrypted: cipherActive
+  }
+  fs.writeFileSync(p, JSON.stringify(stored, null, 2), 'utf8')
 }
 
 /** 判断当前配置字段是否齐全（不含网络探测） */

@@ -6,3 +6,6 @@ release/
 *.log
 keyboard_stats.db*
 ai-config.json
+
+# 统一使用 npm；忽略误生成的 yarn.lock
+yarn.lock

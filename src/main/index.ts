@@ -7,16 +7,18 @@
  * - 处理 IPC：daily/yesterday 统计、Mastra server 地址
  * - 启动/停止 Mastra 独立 server 子进程（生命周期与应用绑定）
  */
-import { app, BrowserWindow, Menu, ipcMain, systemPreferences } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain, systemPreferences, safeStorage } from 'electron'
 import { GlobalKeyboardListener } from 'node-global-key-listener'
 import { uIOhook } from 'uiohook-napi'
 import { spawn, type ChildProcess } from 'node:child_process'
+import net from 'node:net'
+import crypto from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getDailyStats, getDailyTotals, getSharedQueryDb, closeSharedQueryDb, todayLocal, yesterdayLocal } from '../shared/stats-repository.ts'
 import { EventCollector } from './event-collector.ts'
-import { aiConfigStatus, loadAiConfig, saveAiConfig, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
-import { IPC_CHANNELS, type DailyStats, type TrendData } from '../shared/types.ts'
+import { aiConfigStatus, loadAiConfig, saveAiConfig, setConfigCipher, validateAiConfig, type AiConfig, type SetAiConfigResult } from '../shared/ai-config.ts'
+import { IPC_CHANNELS, type DailyStats, type MastraEndpoint, type TrendData } from '../shared/types.ts'
 // 按键识别：跨平台标准名 -> 中文显示（macOS Intel/AppleSilicon / Windows / Linux 通用）
 // 不再依赖按平台硬编码的 vKey 映射表（macOS kVK 与 Windows VK 数值不一致）。
 import { keyDisplayName, isShortcutLike } from './key-name-map.ts'
@@ -52,24 +54,83 @@ function dbPathForChild(): string {
 }
 
 const collector = new EventCollector(() => broadcast(IPC_CHANNELS.statsSynced, {}))
-let mastraServer: ChildProcess | null = null
-const mastraUrl = `http://127.0.0.1:${process.env.MASTRA_PORT ?? 4111}`
-let mastraStarted = false
 
-/** 懒加载：仅当已配置 AI 时才真正启动 Mastra 子进程（幂等）。 */
+/**
+ * Mastra server 生命周期管理。
+ * - token：每次应用启动随机生成，仅存内存 + 经 IPC 交给渲染层，不落盘。
+ *   所有本地 HTTP 请求必须携带正确 token，阻止本机其它进程/网页越权读统计。
+ * - 端口：默认 4111，被占用时自动改用随机空闲端口（避免多实例/端口冲突）。
+ * - 就绪探测：spawn 后轮询 /health，确认监听就绪再放行聊天请求。
+ * - 崩溃自愈：非主动停止时按指数退避自动重启（有限次）。
+ */
+const MASTRA_TOKEN = crypto.randomBytes(32).toString('hex')
+const MASTRA_PORT_BASE = Number(process.env.MASTRA_PORT ?? 4111)
+const MASTRA_READY_TIMEOUT_MS = 15_000
+const MASTRA_MAX_RESTARTS = 3
+
+let mastraServer: ChildProcess | null = null
+let mastraPort = MASTRA_PORT_BASE
+let mastraStopping = false
+let mastraRestartAttempts = 0
+let readyPromise: Promise<void> | null = null
+
+/** 取一个空闲端口：优先用基础端口，被占用则交给系统分配随机端口。 */
+function pickFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.once('error', () => {
+      const fallback = net.createServer()
+      fallback.once('error', reject)
+      fallback.listen(0, '127.0.0.1', () => {
+        const addr = fallback.address()
+        fallback.close(() => resolve(typeof addr === 'object' && addr ? addr.port : MASTRA_PORT_BASE))
+      })
+    })
+    srv.listen(MASTRA_PORT_BASE, '127.0.0.1', () => {
+      const addr = srv.address()
+      srv.close(() => resolve(typeof addr === 'object' && addr ? addr.port : MASTRA_PORT_BASE))
+    })
+  })
+}
+
+/** 轮询 /health 直到就绪或超时；/health 不需 token 但不含敏感数据。 */
+async function waitForMastraReady(): Promise<void> {
+  const deadline = Date.now() + MASTRA_READY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${mastraPort}/health`)
+      if (res.ok) return
+    } catch {
+      /* 尚未就绪，继续轮询 */
+    }
+    await new Promise(r => setTimeout(r, 200))
+  }
+  throw new Error('AI 服务启动超时')
+}
+
+/** 懒加载：仅当已配置 AI 时才真正启动 Mastra 子进程（幂等，等待就绪）。端口已在启动时预留。 */
 async function ensureMastraStarted(): Promise<void> {
-  if (mastraStarted || mastraServer) return
   if (process.env.DISABLE_MASTRA_SERVER === '1') return
   // 未配置 AI 就不 spawn 常驻子进程，保持"轻量安静"的卖点
   if (!validateAiConfig(loadAiConfig()).ok) return
-  startMastraServer()
+  if (readyPromise) return readyPromise
+  readyPromise = (async () => {
+    startMastraServer()
+    await waitForMastraReady()
+    mastraRestartAttempts = 0
+  })().catch(err => {
+    readyPromise = null
+    throw err
+  })
+  return readyPromise
 }
 
 function startMastraServer(): void {
-  mastraStarted = true
   if (process.env.DISABLE_MASTRA_SERVER === '1') return
   try {
     const entry = mastraServerEntry()
+    // 主进程已注入解密器，可拿到明文 key；子进程无解密器，经环境变量传明文，避免密文无法还原。
+    const apiKey = loadAiConfig()?.apiKey ?? process.env.AI_API_KEY ?? ''
     // Electron ≥37 内置 Node 22（含 tracingChannel / ESM），满足 @mastra 全套依赖。
     // 用 Electron 自身以 Node 模式运行子进程，发布后用户无需安装 Node。
     // dev：仍跑 TS 源码（内置 node 22.18+ 支持 .ts）；prod：跑 esbuild 打包产物。
@@ -77,7 +138,9 @@ function startMastraServer(): void {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
-        PORT: String(process.env.MASTRA_PORT ?? 4111),
+        PORT: String(mastraPort),
+        MASTRA_TOKEN,
+        AI_API_KEY: apiKey,
         KEYBOARD_DB_PATH: dbPathForChild()
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -85,20 +148,37 @@ function startMastraServer(): void {
     mastraServer = child
     child.stdout?.on('data', d => console.log(`[mastra] ${String(d).trimEnd()}`))
     child.stderr?.on('data', d => console.error(`[mastra] ${String(d).trimEnd()}`))
-    child.on('exit', code => console.log(`[mastra] server exited code=${code}`))
+    child.on('exit', code => {
+      console.log(`[mastra] server exited code=${code}`)
+      if (mastraServer === child) mastraServer = null
+      if (mastraStopping) return
+      // 崩溃自愈：有限次指数退避重启；超过上限则放弃（用户重启应用恢复）
+      if (mastraRestartAttempts >= MASTRA_MAX_RESTARTS) {
+        readyPromise = null
+        console.error('[mastra] 达到最大重启次数，停止自愈')
+        return
+      }
+      mastraRestartAttempts++
+      const delay = Math.min(1000 * 2 ** (mastraRestartAttempts - 1), 8000)
+      setTimeout(() => {
+        if (mastraStopping) return
+        void ensureMastraStarted().catch(e => console.error('[mastra] 重启失败:', e))
+      }, delay)
+    })
     child.on('error', err => console.error('[mastra] 启动失败:', err))
   } catch (e) {
     console.error('[mastra] 启动失败:', e)
-    mastraServer = null
+    readyPromise = null
   }
 }
 
 function stopMastraServer(): void {
+  mastraStopping = true
   if (mastraServer) {
     mastraServer.kill('SIGTERM')
     mastraServer = null
   }
-  mastraStarted = false
+  readyPromise = null
 }
 
 function registerIpc(): void {
@@ -112,8 +192,21 @@ function registerIpc(): void {
     const rows = await getDailyTotals(getSharedQueryDb(), Math.max(2, Math.min(90, Number(days) || 7)))
     return { dates: rows.map(r => r.date), totals: rows.map(r => r.total) }
   })
+  ipcMain.handle(IPC_CHANNELS.getCollectionEnabled, () => collector.isEnabled())
+  ipcMain.handle(IPC_CHANNELS.setCollectionEnabled, async (_e, on: boolean): Promise<boolean> => {
+    await collector.setEnabled(!!on)
+    const state = collector.isEnabled()
+    broadcast(IPC_CHANNELS.collectionState, state)
+    return state
+  })
+  ipcMain.handle(IPC_CHANNELS.clearData, async () => {
+    await collector.clearAll()
+  })
   ipcMain.handle(IPC_CHANNELS.mastraEnsureStarted, () => ensureMastraStarted())
-  ipcMain.handle(IPC_CHANNELS.getMastraUrl, () => mastraUrl)
+  ipcMain.handle(IPC_CHANNELS.getMastraUrl, (): MastraEndpoint => ({
+    url: `http://127.0.0.1:${mastraPort}`,
+    token: MASTRA_TOKEN
+  }))
   ipcMain.handle(IPC_CHANNELS.getAiConfig, () => aiConfigStatus(loadAiConfig()))
   ipcMain.handle(IPC_CHANNELS.setAiConfig, async (_e, cfg: AiConfig): Promise<SetAiConfigResult> => {
     const check = validateAiConfig(cfg)
@@ -263,26 +356,37 @@ function startInputListeners(): void {
   try {
     const keyboard = new GlobalKeyboardListener()
     void keyboard
-      .addListener((e, down) => {
+      .addListener(e => {
         const std = e.name ?? ''
         if (!std) return
         if (std.toLowerCase().includes('mouse')) {
-          // darwin：鼠标事件直接来自 MacKeyServer；其他平台该库不上报鼠标，忽略
-          if (process.platform === 'darwin' && down) {
+          // darwin：鼠标事件直接来自 MacKeyServer；其他平台该库不上报鼠标，忽略。
+          // MacKeyServer 的 event tap 会同时上报鼠标"按下/抬起"两个事件，
+          // 必须用 e.state 只在 DOWN 时计一次，否则一次点击被算两次。
+          if (process.platform === 'darwin' && e.state === 'DOWN') {
             const buttonName = std === 'MOUSE LEFT' ? 'Left' : std === 'MOUSE RIGHT' ? 'Right' : std === 'MOUSE MIDDLE' ? 'Middle' : null
             if (!buttonName) return
             collector.handleMouseEvent(buttonName)
-            broadcast(IPC_CHANNELS.mouseEvent, { type: 'mouse', name: buttonName, timestamp: Date.now() })
+            if (collector.isEnabled()) {
+              broadcast(IPC_CHANNELS.mouseEvent, { type: 'mouse', name: buttonName, timestamp: Date.now() })
+            }
           }
           return
         }
         // 转发按下/抬起给采集器，用于组合键配对判定（纯修饰键不计入组合）
-        collector.handleKeyTransition(std, e.state === 'DOWN')
+        const kind = collector.handleKeyTransition(std, e.state === 'DOWN')
         if (e.state === 'DOWN') return
-        if (!down) return
+        // 暂停采集时不向渲染层推送实时 ticker
+        if (!collector.isEnabled()) return
+        // 单独按下（无配对）的修饰键：主进程不计数，前端也不推送，保持一致
+        if (kind === 'ignore') return
         // 用跨平台标准名识别（A/SPACE/LEFT SHIFT/NUMPAD 1...），collector 内部判定普通/快捷键，展示层转中文
         const keyName = keyDisplayName(std)
-        broadcast(IPC_CHANNELS.keyEvent, { type: 'keyboard', key: keyName })
+        broadcast(IPC_CHANNELS.keyEvent, {
+          type: 'keyboard',
+          key: keyName,
+          kind: kind === 'combo' ? 'combo' : 'normal'
+        })
       })
       .catch(e => console.error('键盘监听启动失败:', e))
   } catch (e) {
@@ -296,6 +400,7 @@ function startInputListeners(): void {
         const buttonName = e.button === 1 ? 'Left' : e.button === 2 ? 'Right' : e.button === 3 ? 'Middle' : null
         if (!buttonName) return
         collector.handleMouseEvent(buttonName)
+        if (!collector.isEnabled()) return
         broadcast(IPC_CHANNELS.mouseEvent, {
           type: 'mouse',
           name: buttonName,
@@ -339,7 +444,25 @@ function initInputListeners(): void {
   }, PERMISSION_POLL_INTERVAL_MS)
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 注入 safeStorage 加解密器：可用时 API Key 加密落盘，不可用则退回明文（保证功能可用）。
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      setConfigCipher({
+        encrypt: plain => safeStorage.encryptString(plain).toString('base64'),
+        decrypt: stored => safeStorage.decryptString(Buffer.from(stored, 'base64'))
+      })
+    }
+  } catch (e) {
+    console.warn('[ai] safeStorage 不可用，API Key 将以明文存储:', e)
+  }
+  // 预留 Mastra 端口（默认 4111，占用则改随机端口），之后固定不变，
+  // 保证渲染层缓存的接入地址始终有效；真正的子进程仍按需懒启动。
+  try {
+    mastraPort = await pickFreePort()
+  } catch {
+    mastraPort = MASTRA_PORT_BASE
+  }
   registerIpc()
   Menu.setApplicationMenu(null)
   initInputListeners()
@@ -358,15 +481,24 @@ app.on('before-quit', e => {
   if (flushed) return
   e.preventDefault()
   flushed = true
-    void (async () => {
-      stopMastraServer()
-      try {
-        uIOhook.stop()
-      } catch {
-        /* ignore */
-      }
-      await collector.flushAndClose()
-      closeSharedQueryDb()
-      app.quit()
-    })()
+  void (async () => {
+    stopMastraServer()
+    try {
+      uIOhook.stop()
+    } catch {
+      /* ignore */
+    }
+    // 冲刷+关库加超时兜底：SQLite WAL checkpoint 卡住（锁争用/磁盘满）时，
+    // 不能让 app.quit() 永不触发导致进程无法退出。
+    await Promise.race([
+      collector.flushAndClose().catch(err => console.error('[quit] 冲刷失败:', err)),
+      new Promise(resolve => setTimeout(resolve, 3000))
+    ])
+    closeSharedQueryDb()
+    app.quit()
+  })().catch(err => {
+    // 兜底：任何意外也强制退出，绝不把进程卡在退出流程里
+    console.error('[quit] 退出流程异常，强制退出:', err)
+    app.exit(0)
+  })
 })

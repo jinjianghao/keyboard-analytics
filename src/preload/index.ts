@@ -30,6 +30,19 @@ const api: KeyboardAnalyticsApi = {
     ipcRenderer.on(IPC_CHANNELS.statsSynced, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.statsSynced, listener)
   },
+  onAccessibilityDenied: cb => {
+    const listener = (_: unknown, data: { platform: string }): void => cb(data)
+    ipcRenderer.on(IPC_CHANNELS.accessibilityDenied, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.accessibilityDenied, listener)
+  },
+  getCollectionEnabled: () => ipcRenderer.invoke(IPC_CHANNELS.getCollectionEnabled),
+  setCollectionEnabled: (on: boolean) => ipcRenderer.invoke(IPC_CHANNELS.setCollectionEnabled, on),
+  onCollectionState: cb => {
+    const listener = (_: unknown, enabled: boolean): void => cb(enabled)
+    ipcRenderer.on(IPC_CHANNELS.collectionState, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.collectionState, listener)
+  },
+  clearData: () => ipcRenderer.invoke(IPC_CHANNELS.clearData),
   getMastraUrl: () => ipcRenderer.invoke(IPC_CHANNELS.getMastraUrl),
   ensureMastraStarted: () => ipcRenderer.invoke(IPC_CHANNELS.mastraEnsureStarted),
   getAiConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getAiConfig),

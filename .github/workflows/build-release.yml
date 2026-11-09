@@ -10,7 +10,30 @@ permissions:
   contents: write
 
 jobs:
+  # 快速门禁：类型检查 + 单元测试（纯逻辑，无需原生模块编译）。
+  # 通过后再进入耗时的三平台打包，避免把明显错误带到打包阶段。
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 纯逻辑测试与 tsc 不依赖原生绑定，--ignore-scripts 跳过 sqlite3/uiohook 编译，快且稳。
+      - name: Install dependencies (no native build)
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
   build:
+    needs: checks
     strategy:
       fail-fast: false
       matrix:

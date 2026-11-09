@@ -86,6 +86,43 @@ h1 {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
+/* 采集控制：暂停/恢复 + 清除数据 */
+.data-controls {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.control-btn {
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  color: #555;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.control-btn:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+}
+
+.control-btn-danger:hover {
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+}
+
+.paused-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #fff1f0;
+  color: #ff4d4f;
+  font-size: 12px;
+}
+
 /* 大数字键盘统计 */
 .stat-big {
   display: flex;

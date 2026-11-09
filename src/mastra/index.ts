@@ -12,11 +12,7 @@ export const mastra = new Mastra({
   agents: { analyticsAgent },
   server: {
     port: Number(process.env.PORT ?? 4111),
-    cors: {
-      origin: '*',
-      allowMethods: ['*'],
-      allowHeaders: ['*']
-    },
+    // CORS 由 server.ts 的 Hono 层统一处理（白名单 + token），此处不配置。
     apiRoutes: [
       chatRoute({
         path: '/chat/:agentId'

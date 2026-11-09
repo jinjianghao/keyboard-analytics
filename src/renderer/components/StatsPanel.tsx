@@ -16,7 +16,6 @@ interface LiveCounters {
   normalKeys: number
   /** 最近敲击的按键（用于实时动效展示） */
   recent: string[]
-  startTime: number
 }
 
 const EMPTY_STATS: DailyStats = {
@@ -31,8 +30,7 @@ const EMPTY_LIVE: LiveCounters = {
   combinationPresses: {},
   mouse: { left: 0, right: 0, middle: 0 },
   normalKeys: 0,
-  recent: [],
-  startTime: Date.now()
+  recent: []
 }
 
 const RECENT_LIMIT = 8
@@ -70,9 +68,26 @@ export default function StatsPanel(): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
   const [trendDays, setTrendDays] = useState<7 | 30>(7)
   const [trend, setTrend] = useState<TrendData>({ dates: [], totals: [] })
+  const [collecting, setCollecting] = useState(true)
+  // 会话起始时间：仅组件挂载时确定一次，切换 今日/昨日 不应重置
+  const [sessionStart] = useState(() => Date.now())
   // 用 ref 避免事件闭包读到旧 live
   const liveRef = useRef(live)
   liveRef.current = live
+
+  useEffect(() => {
+    void window.keyboardApi?.getCollectionEnabled().then(setCollecting)
+    return window.keyboardApi?.onCollectionState(setCollecting)
+  }, [])
+
+  const toggleCollection = (): void => {
+    void window.keyboardApi?.setCollectionEnabled(!collecting).then(setCollecting)
+  }
+
+  const clearAllData = (): void => {
+    if (!window.confirm('确定清空所有本地统计数据？此操作不可撤销。')) return
+    void window.keyboardApi?.clearData()
+  }
 
   const fetchRange = useCallback((r: Range): void => {
     const p = r === 'today' ? window.keyboardApi?.getDailyStats() : window.keyboardApi?.getYesterdayStats()
@@ -87,11 +102,8 @@ export default function StatsPanel(): React.JSX.Element {
   useEffect(() => {
     return window.keyboardApi?.onKeyEvent(data => {
       const cur = liveRef.current
-      const target =
-        data.key.includes('+') ||
-        ['Ctrl', 'Shift', 'Alt', 'Command'].some(s => data.key.includes(s))
-          ? 'combinationPresses'
-          : 'keyPresses'
+      // 按主进程下发的 kind 分流，不再用按键名子串猜测
+      const target = data.kind === 'combo' ? 'combinationPresses' : 'keyPresses'
       setLive({
         ...cur,
         [target]: { ...cur[target], [data.key]: (cur[target][data.key] ?? 0) + 1 },
@@ -133,13 +145,23 @@ export default function StatsPanel(): React.JSX.Element {
   }, [trendDays])
 
   const mergedTop = useMemo(() => topKeys(stats, live, 10, range), [stats, live, range])
-  const runningTime = now - live.startTime
+  const topCombos = useMemo(() => {
+    const merged = new Map<string, number>()
+    for (const [k, v] of Object.entries(stats.combinationPresses)) merged.set(k, v)
+    if (range === 'today') {
+      for (const [k, v] of Object.entries(live.combinationPresses)) merged.set(k, (merged.get(k) ?? 0) + v)
+    }
+    return [...merged.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+  }, [stats, live, range])
+  const runningTime = now - sessionStart
   const trendMax = useMemo(() => Math.max(1, ...trend.totals), [trend.totals])
   const trendEmpty = useMemo(() => trend.totals.length === 0 || trend.totals.every(t => t === 0), [trend.totals])
 
-  const setRangeAndClear = (r: Range): void => {
+  const selectRange = (r: Range): void => {
     setRange(r)
-    setLive(cur => ({ ...cur, startTime: Date.now() }))
   }
 
   return (
@@ -151,20 +173,32 @@ export default function StatsPanel(): React.JSX.Element {
             <button
               type="button"
               className={`range-btn ${range === 'today' ? 'range-btn-active' : ''}`}
-              onClick={() => setRangeAndClear('today')}
+              onClick={() => selectRange('today')}
             >
               今日
             </button>
             <button
               type="button"
               className={`range-btn ${range === 'yesterday' ? 'range-btn-active' : ''}`}
-              onClick={() => setRangeAndClear('yesterday')}
+              onClick={() => selectRange('yesterday')}
             >
               昨日
             </button>
           </div>
         </div>
-        <p className="running-time">已运行时间：{formatDuration(runningTime)}</p>
+        <p className="running-time">
+          已运行时间：{formatDuration(runningTime)}
+          {!collecting && <span className="paused-badge">已暂停采集</span>}
+        </p>
+
+        <div className="data-controls">
+          <button type="button" className="control-btn" onClick={toggleCollection}>
+            {collecting ? '暂停采集' : '恢复采集'}
+          </button>
+          <button type="button" className="control-btn control-btn-danger" onClick={clearAllData}>
+            清除数据
+          </button>
+        </div>
 
         <div className="stat-section">
           <h3>键盘统计</h3>
@@ -205,6 +239,29 @@ export default function StatsPanel(): React.JSX.Element {
                   <span
                     className="key-bar-fill"
                     style={{ width: `${Math.max(4, Math.round((count / mergedTop[0].count) * 100))}%` }}
+                  />
+                </span>
+                <span className="key-count">{count}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="chart-container">
+        <h2>最常用组合键 · {range === 'today' ? '今日' : '昨日'}</h2>
+        {topCombos.length === 0 ? (
+          <p className="empty-hint">该时段暂无组合键记录。</p>
+        ) : (
+          <ol className="key-list">
+            {topCombos.map(({ key, count }, i) => (
+              <li key={key} className="key-row">
+                <span className="key-rank">{i + 1}</span>
+                <span className="key-name">{key}</span>
+                <span className="key-bar">
+                  <span
+                    className="key-bar-fill"
+                    style={{ width: `${Math.max(4, Math.round((count / topCombos[0].count) * 100))}%` }}
                   />
                 </span>
                 <span className="key-count">{count}</span>

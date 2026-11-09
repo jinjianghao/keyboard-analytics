@@ -22,6 +22,7 @@ const EMPTY_STATUS: AiConfigStatus = {
 
 export default function ChatPanel(): React.JSX.Element {
   const [mastraBase, setMastraBase] = useState<string>('http://127.0.0.1:4111')
+  const [mastraToken, setMastraToken] = useState<string>('')
   const [input, setInput] = useState('')
   const [collapsed, setCollapsed] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -47,9 +48,10 @@ export default function ChatPanel(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void window.keyboardApi?.getMastraUrl().then(url => {
-      // 去掉尾部斜杠
-      setMastraBase(url.replace(/\/$/, ''))
+    void window.keyboardApi?.getMastraUrl().then(ep => {
+      // 去掉尾部斜杠；同时取回本地鉴权 token
+      setMastraBase(ep.url.replace(/\/$/, ''))
+      setMastraToken(ep.token)
     })
     refreshStatus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,9 +60,10 @@ export default function ChatPanel(): React.JSX.Element {
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: `${mastraBase}/chat/analytics-agent`
+        api: `${mastraBase}/chat/analytics-agent`,
+        headers: mastraToken ? { 'x-mastra-token': mastraToken } : {}
       }),
-    [mastraBase]
+    [mastraBase, mastraToken]
   )
 
   const { messages, sendMessage, status: chatStatus } = useChat({
@@ -130,6 +133,10 @@ export default function ChatPanel(): React.JSX.Element {
       } else {
         setSaveMsg(res.error ?? '保存失败')
       }
+    }).catch((err: unknown) => {
+      // IPC 异常（主进程崩溃/序列化失败等）：解除保存态，避免按钮永久 disabled
+      setSaving(false)
+      setSaveMsg(`保存失败：${err instanceof Error ? err.message : String(err)}`)
     })
   }
 
