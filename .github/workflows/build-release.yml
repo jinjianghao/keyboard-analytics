@@ -38,12 +38,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # universal：在 arm64 runner 上一次产出 Intel(x64)+Apple Silicon(arm64) 双架构 DMG，
-          # 规避 macOS-13(Intel) runner 在免费额度下长期排队的问题。
+          # macOS 仅 Apple Silicon(arm64)：universal 需真正的跨架构原生编译，
+          # sqlite3/uiohook 无法在 arm64 runner 上交叉产出 x64 切片(lipo 合并两份 arm64 失败)，
+          # 且 Intel(macOS-13) runner 在免费额度下长期排队。Intel 版由本地构建补传到 Release。
           - os: macos-latest
-            arch: universal
+            arch: arm64
             target: mac
-            flags: --universal
+            flags: ''
           - os: windows-latest
             arch: x64
             target: win
